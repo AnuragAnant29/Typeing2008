@@ -1,0 +1,2438 @@
+require "import"
+import "android.speech.*"
+import "android.speech.RecognizerIntent"
+import "android.speech.SpeechRecognizer"
+import "android.content.*"
+import "android.widget.*"
+import "android.view.*"
+import "android.net.Uri"
+import "android.graphics.Typeface" 
+import "android.os.Vibrator"
+import "android.os.Handler"
+import "android.os.Looper"
+import "android.media.AudioManager"
+import "android.media.ToneGenerator"
+import "java.io.*"
+import "java.lang.Thread"
+import "java.lang.Runnable"
+import "java.net.URL"
+import "java.util.*"
+import "com.androlua.Http"
+import "com.androlua.LuaDialog"
+import "cjson"
+
+local currentFilePath = "/sdcard/解说/Plugins/extreme AI voice Typer./main.lua"
+local mainHandler = Handler(Looper.getMainLooper())
+local updateInProgress = false
+local settingsDlg = nil
+local moreOptionsDlg = nil
+local chatDlg = nil
+local isListening = false
+
+if activity then context = activity elseif service then context = service end
+
+local currentAppVersion = "2.9"
+local versionUrl = "https://raw.githubusercontent.com/AnuragAnant29/Kingrag/refs/heads/main/Version.txt"
+local notesUrl = "https://raw.githubusercontent.com/AnuragAnant29/Kingrag/refs/heads/main/Notes.txt"
+local updateScriptUrl = "https://raw.githubusercontent.com/AnuragAnant29/Kingrag/refs/heads/main/Update.lua"
+
+local prefs = context.getSharedPreferences("ai_voice_typer_permanent_settings", Context.MODE_PRIVATE)
+local editor = prefs.edit()
+
+local orKey = prefs.getString("or_key", "")
+local geminiKey = prefs.getString("gemini_key", "")
+local groqKey = prefs.getString("groq_key", "")
+local selectedProvider = prefs.getString("provider", "OpenRouter")
+
+local autoDetect = prefs.getBoolean("auto_detect", true)
+local selectedLanguage = prefs.getString("lang", "Hindi")
+local emojiEnabled = prefs.getBoolean("emoji_enabled", true)
+local emojiQty = prefs.getString("emoji_qty", "Low")
+local endAction = prefs.getString("end_action", "Space")
+
+local targetLanguage = prefs.getString("target_lang", "English")
+local enableTranslation = prefs.getBoolean("enable_trans", false)
+local useAITranslation = prefs.getBoolean("use_ai_trans", false)
+local offlineMode = prefs.getBoolean("offline_mode", false)
+
+local vibrationEnabled = prefs.getBoolean("vibration_enabled", true)
+local copyToClipboard = prefs.getBoolean("copy_clipboard", false)
+local soundEnabled = prefs.getBoolean("sound_enabled", true)
+local soundType = prefs.getString("sound_type", "Default Beep")
+
+local typingMode = prefs.getString("typing_mode", "Auto Detect Script")
+local startupAction = prefs.getString("startup_action", "Ask Every Time")
+
+local uiLanguage = prefs.getString("ui_language", "English")
+
+local uiTexts = {
+  ["English"] = {
+    select_typing_mode = "Select Typing Mode",
+    ai_settings = "AI Settings",
+    source_language = "Source Language (Click to Change)",
+    target_language = "Target Language (Click to Change)",
+    enable_translation = "Enable Translation",
+    swap = "SWAP",
+    emoji_settings = "Emoji Settings",
+    more_options = "More Options",
+    save_close = "Save & Close",
+    
+    ai_settings_title = "AI Settings",
+    select_ai_provider = "Select AI Provider",
+    manage_api_keys = "Manage API Keys",
+    
+    emoji_settings_title = "Emoji Settings",
+    enable_smart_emojis = "Enable Smart Emojis",
+    emoji_quantity = "Emoji Quantity",
+    
+    more_options_title = "More Options",
+    other_settings = "Other Settings",
+    sound_vibration_settings = "Sound & Vibration Settings",
+    word_dictionary = "Word Dictionary",
+    about = "About",
+    contact_us = "Contact Us",
+    close = "Close",
+    
+    other_settings_title = "Other Settings",
+    select_ui_lang = "Select UI Language",
+    use_ai_translation = "Use AI Translation",
+    offline_mode = "Offline Mode (No Internet)",
+    copy_clipboard = "Copy Dictated Text To Clipboard",
+    end_action = "End Action (Text End Behavior)",
+    none = "None",
+    new_line = "New Line",
+    space = "Space",
+    space_newline = "Space + New Line",
+    
+    sound_vibration_title = "Sound & Vibration Settings",
+    enable_vibration = "Enable Vibration Feedback",
+    enable_typing_sound = "Enable Typing Sound",
+    typing_sound_type = "Typing Sound Type",
+    default_beep = "Default Beep",
+    soft_click = "Soft Click",
+    sharp_pop = "Sharp Pop",
+    
+    word_dictionary_title = "Word Dictionary",
+    add_new_words = "Add New Words To Dictionary",
+    view_dictionary_words = "View Dictionary Words",
+    clear_dictionary = "Clear Dictionary",
+    
+    add_word_title = "Add New Word to Dictionary",
+    word_to_replace = "Word (to be replaced):",
+    replacement_word = "Replacement Word:",
+    save = "Save",
+    cancel = "Cancel",
+    
+    delete_word = "Delete Word?",
+    delete_confirmation = "Delete '{}' from dictionary?",
+    delete = "Delete",
+    
+    clear_dict_title = "Clear Dictionary",
+    clear_dict_message = "Are you sure you want to clear ALL words from the dictionary? This cannot be undone.",
+    clear_all = "Clear All",
+    
+    manage_api_title = "Manage API Keys",
+    openrouter_key = "OpenRouter Key",
+    get_openrouter_key = "Get OpenRouter Key",
+    gemini_key = "Gemini Key",
+    get_gemini_key = "Get Gemini Key",
+    groq_key = "Groq Key",
+    get_groq_key = "Get Groq Key",
+    save_keys = "Save Keys",
+    
+    about_title = "About Plugin",
+    about_info = "How to use:\n1. Select AI Provider and add API Keys.\n2. Long press on any language to add/remove from favorites.\n3. Emojis and auto-punctuation are added automatically.",
+    
+    contact_title = "Contact Us",
+    join_telegram = "Join our Telegram Channel",
+    give_feedback = "Give Feedback on Telegram",
+    
+    target_lang_title = "Target Language (Long Press to Add/Remove Fav)",
+    typing_lang_title = "Typing Language (Long Press to Add/Remove Fav)",
+    removed_from_fav = "removed from favorites",
+    added_to_fav = "added to favorites",
+    
+    word_added = "Word added: {} → {}",
+    dictionary_empty = "Dictionary is empty. Add some words first.",
+    dictionary_words = "Dictionary Words ({} words)",
+    deleted_word = "Deleted: {}",
+    dictionary_cleared = "Dictionary cleared successfully",
+    
+    processing = "Processing...",
+    key_missing = "Key Missing",
+    connection_failed = "Connection Failed. Please check API Key or Internet.",
+    please_enter_word = "Please enter a word",
+    please_enter_replacement = "Please enter a replacement word",
+    chat_with_ai = "Chat with AI",
+    send = "Send",
+    type_message = "Type your message...",
+    ai_is_thinking = "AI is thinking...",
+    chat_title = "Chat with AI",
+    close = "Close",
+    listen = "Listen",
+  },
+  
+  ["Hindi"] = {
+    select_typing_mode = "टाइपिंग मोड चुनें",
+    ai_settings = "AI सेटिंग्स",
+    source_language = "स्रोत भाषा (बदलने के लिए क्लिक करें)",
+    target_language = "लक्ष्य भाषा (बदलने के लिए क्लिक करें)",
+    enable_translation = "अनुवाद सक्षम करें",
+    swap = "बदलें",
+    emoji_settings = "इमोजी सेटिंग्स",
+    more_options = "अधिक विकल्प",
+    save_close = "सेव करें और बंद करें",
+    
+    ai_settings_title = "AI सेटिंग्स",
+    select_ai_provider = "AI प्रदाता चुनें",
+    manage_api_keys = "API कुंजियाँ प्रबंधित करें",
+    
+    emoji_settings_title = "इमोजी सेटिंग्स",
+    enable_smart_emojis = "स्मार्ट इमोजी सक्षम करें",
+    emoji_quantity = "इमोजी मात्रा",
+    
+    more_options_title = "अधिक विकल्प",
+    other_settings = "अन्य सेटिंग्स",
+    sound_vibration_settings = "ध्वनि और कंपन सेटिंग्स",
+    word_dictionary = "शब्दकोश",
+    about = "जानकारी",
+    contact_us = "संपर्क करें",
+    close = "बंद करें",
+    
+    other_settings_title = "अन्य सेटिंग्स",
+    select_ui_lang = "UI भाषा चुनें",
+    use_ai_translation = "AI अनुवाद का उपयोग करें",
+    offline_mode = "ऑफलाइन मोड (इंटरनेट के बिना)",
+    copy_clipboard = "टेक्स्ट को क्लिपबोर्ड पर कॉपी करें",
+    end_action = "एंड एक्शन (टेक्स्ट एंड व्यवहार)",
+    none = "कुछ नहीं",
+    new_line = "नई लाइन",
+    space = "स्पेस",
+    space_newline = "स्पेस + नई लाइन",
+    
+    sound_vibration_title = "ध्वनि और कंपन सेटिंग्स",
+    enable_vibration = "कंपन फीडबैक सक्षम करें",
+    enable_typing_sound = "टाइपिंग ध्वनि सक्षम करें",
+    typing_sound_type = "टाइपिंग ध्वनि प्रकार",
+    default_beep = "डिफ़ॉल्ट बीप",
+    soft_click = "सॉफ्ट क्लिक",
+    sharp_pop = "शार्प पॉप",
+    
+    word_dictionary_title = "शब्दकोश",
+    add_new_words = "शब्दकोश में नए शब्द जोड़ें",
+    view_dictionary_words = "शब्दकोश शब्द देखें",
+    clear_dictionary = "शब्दकोश साफ़ करें",
+    
+    add_word_title = "शब्दकोश में नया शब्द जोड़ें",
+    word_to_replace = "शब्द (जिसे बदलना है):",
+    replacement_word = "प्रतिस्थापन शब्द:",
+    save = "सेव करें",
+    cancel = "रद्द करें",
+    
+    delete_word = "शब्द हटाएं?",
+    delete_confirmation = "शब्दकोश से '{}' हटाएं?",
+    delete = "हटाएं",
+    
+    clear_dict_title = "शब्दकोश साफ़ करें",
+    clear_dict_message = "क्या आप शब्दकोश से सभी शब्द हटाना चाहते हैं? यह वापस नहीं किया जा सकता।",
+    clear_all = "सभी हटाएं",
+    
+    manage_api_title = "API कुंजियाँ प्रबंधित करें",
+    openrouter_key = "OpenRouter कुंजी",
+    get_openrouter_key = "OpenRouter कुंजी प्राप्त करें",
+    gemini_key = "Gemini कुंजी",
+    get_gemini_key = "Gemini कुंजी प्राप्त करें",
+    groq_key = "Groq कुंजी",
+    get_groq_key = "Groq कुंजी प्राप्त करें",
+    save_keys = "कुंजियाँ सेव करें",
+    
+    about_title = "प्लगइन के बारे में",
+    about_info = "उपयोग कैसे करें:\n1. AI प्रदाता चुनें और API कुंजियाँ जोड़ें।\n2. किसी भाषा को लंबे समय तक दबाकर फेवरेट में जोड़ें/हटाएं।\n3. इमोजी और ऑटो-पंक्चुएशन स्वचालित रूप से जोड़े जाते हैं।",
+    
+    contact_title = "संपर्क करें",
+    join_telegram = "हमारे टेलीग्राम चैनल से जुड़ें",
+    give_feedback = "टेलीग्राम पर फीडबैक दें",
+    
+    target_lang_title = "लक्ष्य भाषा (फेवरेट जोड़ने/हटाने के लिए लंबे समय तक दबाएं)",
+    typing_lang_title = "टाइपिंग भाषा (फेवरेट जोड़ने/हटाने के लिए लंबे समय तक दबाएं)",
+    removed_from_fav = "फेवरेट से हटा दिया गया",
+    added_to_fav = "फेवरेट में जोड़ दिया गया",
+    
+    word_added = "शब्द जोड़ा गया: {} → {}",
+    dictionary_empty = "शब्दकोश खाली है। कुछ शब्द पहले जोड़ें।",
+    dictionary_words = "शब्दकोश शब्द ({} शब्द)",
+    deleted_word = "हटाया गया: {}",
+    dictionary_cleared = "शब्दकोश सफलतापूर्वक साफ़ कर दिया गया",
+    
+    processing = "प्रोसेसिंग...",
+    key_missing = "कुंजी गायब है",
+    connection_failed = "कनेक्शन विफल। कृपया API कुंजी या इंटरनेट जांचें।",
+    please_enter_word = "कृपया एक शब्द दर्ज करें",
+    please_enter_replacement = "कृपया एक प्रतिस्थापन शब्द दर्ज करें",
+    chat_with_ai = "AI के साथ चैट करें",
+    send = "भेजें",
+    type_message = "अपना संदेश लिखें...",
+    ai_is_thinking = "AI सोच रहा है...",
+    chat_title = "AI के साथ चैट करें",
+    close = "बंद करें",
+    listen = "सुनें",
+  },
+  
+  ["Urdu"] = {
+    select_typing_mode = "ٹائپنگ موڈ منتخب کریں",
+    ai_settings = "AI ترتیبات",
+    source_language = "ماخذ زبان (تبدیل کرنے کے لیے کلک کریں)",
+    target_language = "ہدف زبان (تبدیل کرنے کے لیے کلک کریں)",
+    enable_translation = "ترجمہ فعال کریں",
+    swap = "تبدیل کریں",
+    emoji_settings = "ایموجی ترتیبات",
+    more_options = "مزید اختیارات",
+    save_close = "محفوظ کریں اور بند کریں",
+    
+    ai_settings_title = "AI ترتیبات",
+    select_ai_provider = "AI فراہم کنندہ منتخب کریں",
+    manage_api_keys = "API کنجیاں منظم کریں",
+    
+    emoji_settings_title = "ایموجی ترتیبات",
+    enable_smart_emojis = "سمارٹ ایموجی فعال کریں",
+    emoji_quantity = "ایموجی مقدار",
+    
+    more_options_title = "مزید اختیارات",
+    other_settings = "دیگر ترتیبات",
+    sound_vibration_settings = "آواز اور وائبریشن ترتیبات",
+    word_dictionary = "لغت",
+    about = "تعارف",
+    contact_us = "رابطہ کریں",
+    close = "بند کریں",
+    
+    other_settings_title = "دیگر ترتیبات",
+    select_ui_lang = "UI زبان منتخب کریں",
+    use_ai_translation = "AI ترجمہ استعمال کریں",
+    offline_mode = "آف لائن موڈ (بغیر انٹرنیٹ)",
+    copy_clipboard = "متن کو کلپ بورڈ پر کاپی کریں",
+    end_action = "اینڈ ایکشن (متن کے آخر میں رویہ)",
+    none = "کچھ نہیں",
+    new_line = "نئی لائن",
+    space = "خالی جگہ",
+    space_newline = "خالی جگہ + نئی لائن",
+    
+    sound_vibration_title = "آواز اور وائبریشن ترتیبات",
+    enable_vibration = "وائبریشن فیڈبیک فعال کریں",
+    enable_typing_sound = "ٹائپنگ آواز فعال کریں",
+    typing_sound_type = "ٹائپنگ آواز کی قسم",
+    default_beep = "پہلے سے طے شدہ بیپ",
+    soft_click = "نرم کلک",
+    sharp_pop = "تیز پاپ",
+    
+    word_dictionary_title = "لغت",
+    add_new_words = "لغت میں نئے الفاظ شامل کریں",
+    view_dictionary_words = "لغت کے الفاظ دیکھیں",
+    clear_dictionary = "لغت صاف کریں",
+    
+    add_word_title = "لغت میں نیا لفظ شامل کریں",
+    word_to_replace = "لفظ (جسے تبدیل کرنا ہے):",
+    replacement_word = "متبادل لفظ:",
+    save = "محفوظ کریں",
+    cancel = "منسوخ کریں",
+    
+    delete_word = "لفظ حذف کریں؟",
+    delete_confirmation = "لغت سے '{}' حذف کریں؟",
+    delete = "حذف کریں",
+    
+    clear_dict_title = "لغت صاف کریں",
+    clear_dict_message = "کیا آپ لغت سے تمام الفاظ حذف کرنا چاہتے ہیں؟ یہ واپس نہیں کیا جا سکتا۔",
+    clear_all = "سب حذف کریں",
+    
+    manage_api_title = "API کنجیاں منظم کریں",
+    openrouter_key = "OpenRouter کنجی",
+    get_openrouter_key = "OpenRouter کنجی حاصل کریں",
+    gemini_key = "Gemini کنجی",
+    get_gemini_key = "Gemini کنجی حاصل کریں",
+    groq_key = "Groq کنجی",
+    get_groq_key = "Groq کنجی حاصل کریں",
+    save_keys = "کنجیاں محفوظ کریں",
+    
+    about_title = "پلگ ان کے بارے میں",
+    about_info = "استعمال کیسے کریں:\n1. AI فراہم کنندہ منتخب کریں اور API کنجیاں شامل کریں۔\n2. کسی بھی زبان کو لمبے وقت تک دباکر فیورٹ میں شامل/ہٹائیں۔\n3. ایموجی اور آٹو پنکچویشن خود بخود شامل ہوتے ہیں۔",
+    
+    contact_title = "رابطہ کریں",
+    join_telegram = "ہمارے ٹیلیگرام چینل میں شامل ہوں",
+    give_feedback = "ٹیلیگرام پر فیڈبیک دیں",
+    
+    target_lang_title = "ہدف زبان (فیورٹ شامل/ہٹانے کے لیے لمبے وقت تک دبائیں)",
+    typing_lang_title = "ٹائپنگ زبان (فیورٹ شامل/ہٹانے کے لیے لمبے وقت تک دبائیں)",
+    removed_from_fav = "فیورٹ سے ہٹا دیا گیا",
+    added_to_fav = "فیورٹ میں شامل کر دیا گیا",
+    
+    word_added = "لفظ شامل کیا گیا: {} → {}",
+    dictionary_empty = "لغت خالی ہے۔ پہلے کچھ الفاظ شامل کریں۔",
+    dictionary_words = "لغت کے الفاظ ({} الفاظ)",
+    deleted_word = "حذف کردہ: {}",
+    dictionary_cleared = "لغت کامیابی سے صاف کر دی گئی",
+    
+    processing = "پروسیسنگ...",
+    key_missing = "کنجی غائب ہے",
+    connection_failed = "کنکشن ناکام۔ براہ کرم API کنجی یا انٹرنیٹ چیک کریں۔",
+    please_enter_word = "براہ کرم ایک لفظ درج کریں",
+    please_enter_replacement = "براہ کرم ایک متبادل لفظ درج کریں",
+    chat_with_ai = "AI کے ساتھ چیٹ کریں",
+    send = "بھیجیں",
+    type_message = "اپنا پیغام لکھیں...",
+    ai_is_thinking = "AI سوچ رہا ہے...",
+    chat_title = "AI کے ساتھ چیٹ کریں",
+    close = "بند کریں",
+    listen = "سنیں",
+  },
+  
+  ["Marathi"] = {
+    select_typing_mode = "टाइपिंग मोड निवडा",
+    ai_settings = "AI सेटिंग्ज",
+    source_language = "स्रोत भाषा (बदलण्यासाठी क्लिक करा)",
+    target_language = "लक्ष्य भाषा (बदलण्यासाठी क्लिक करा)",
+    enable_translation = "भाषांतर सक्षम करा",
+    swap = "बदला",
+    emoji_settings = "इमोजी सेटिंग्ज",
+    more_options = "अधिक पर्याय",
+    save_close = "जतन करा आणि बंद करा",
+    
+    ai_settings_title = "AI सेटिंग्ज",
+    select_ai_provider = "AI प्रदाता निवडा",
+    manage_api_keys = "API की व्यवस्थापित करा",
+    
+    emoji_settings_title = "इमोजी सेटिंग्ज",
+    enable_smart_emojis = "स्मार्ट इमोजी सक्षम करा",
+    emoji_quantity = "इमोजी प्रमाण",
+    
+    more_options_title = "अधिक पर्याय",
+    other_settings = "इतर सेटिंग्ज",
+    sound_vibration_settings = "ध्वनी आणि कंपन सेटिंग्ज",
+    word_dictionary = "शब्दकोश",
+    about = "माहिती",
+    contact_us = "संपर्क करा",
+    close = "बंद करा",
+    
+    other_settings_title = "इतर सेटिंग्ज",
+    select_ui_lang = "UI भाषा निवडा",
+    use_ai_translation = "AI भाषांतर वापरा",
+    offline_mode = "ऑफलाइन मोड (इंटरनेटशिवाय)",
+    copy_clipboard = "मजकूर क्लिपबोर्डवर कॉपी करा",
+    end_action = "एंड ॲक्शन (मजकूर शेवटचे वर्तन)",
+    none = "काहीही नाही",
+    new_line = "नवीन ओळ",
+    space = "स्पेस",
+    space_newline = "स्पेस + नवीन ओळ",
+    
+    sound_vibration_title = "ध्वनी आणि कंपन सेटिंग्ज",
+    enable_vibration = "कंपन फीडबॅक सक्षम करा",
+    enable_typing_sound = "टाइपिंग ध्वनि सक्षम करा",
+    typing_sound_type = "टाइपिंग ध्वनि प्रकार",
+    default_beep = "डिफॉल्ट बीप",
+    soft_click = "सॉफ्ट क्लिक",
+    sharp_pop = "शार्प पॉप",
+    
+    word_dictionary_title = "शब्दकोश",
+    add_new_words = "शब्दकोशात नवीन शब्द जोडा",
+    view_dictionary_words = "शब्दकोश शब्द पहा",
+    clear_dictionary = "शब्दकोश साफ करा",
+    
+    add_word_title = "शब्दकोशात नवीन शब्द जोडा",
+    word_to_replace = "शब्द (जो बदलायचा आहे):",
+    replacement_word = "प्रतिस्थापन शब्द:",
+    save = "जतन करा",
+    cancel = "रद्द करा",
+    
+    delete_word = "शब्द हटवा?",
+    delete_confirmation = "शब्दकोशातून '{}' हटवा?",
+    delete = "हटवा",
+    
+    clear_dict_title = "शब्दकोश साफ करा",
+    clear_dict_message = "तुम्हाला शब्दकोशातून सर्व शब्द हटवायचे आहेत का? हे परत करता येत नाही.",
+    clear_all = "सर्व हटवा",
+    
+    manage_api_title = "API की व्यवस्थापित करा",
+    openrouter_key = "OpenRouter की",
+    get_openrouter_key = "OpenRouter की मिळवा",
+    gemini_key = "Gemini की",
+    get_gemini_key = "Gemini की मिळवा",
+    groq_key = "Groq की",
+    get_groq_key = "Groq की मिळवा",
+    save_keys = "की जतन करा",
+    
+    about_title = "प्लगइन बद्दल माहिती",
+    about_info = "कसे वापरावे:\n1. AI प्रदाता निवडा आणि API की जोडा।\n2. कोणतीही भाषा दीर्घकाळ दाबून फेवरेटमध्ये जोडा/हटवा।\n3. इमोजी आणि ऑटो-पंक्चुएशन स्वयंचलितपणे जोडले जातात।",
+    
+    contact_title = "संपर्क करा",
+    join_telegram = "आमच्या टेलिग्राम चॅनलमध्ये सामील व्हा",
+    give_feedback = "टेलिग्रामवर फीडबॅक द्या",
+    
+    target_lang_title = "लक्ष्य भाषा (फेवरेट जोडण्यासाठी/हटवण्यासाठी दीर्घकाळ दाबा)",
+    typing_lang_title = "टाइपिंग भाषा (फेवरेट जोडण्यासाठी/हटवण्यासाठी दीर्घकाळ दाबा)",
+    removed_from_fav = "फेवरेटमधून हटवले",
+    added_to_fav = "फेवरेटमध्ये जोडले",
+    
+    word_added = "शब्द जोडला: {} → {}",
+    dictionary_empty = "शब्दकोश रिकामा आहे. प्रथम काही शब्द जोडा।",
+    dictionary_words = "शब्दकोश शब्द ({} शब्द)",
+    deleted_word = "हटवले: {}",
+    dictionary_cleared = "शब्दकोश यशस्वीरित्या साफ झाला",
+    
+    processing = "प्रोसेसिंग...",
+    key_missing = "की गहाळ आहे",
+    connection_failed = "कनेक्शन अयशस्वी। कृपया API की किंवा इंटरनेट तपासा।",
+    please_enter_word = "कृपया एक शब्द प्रविष्ट करा",
+    please_enter_replacement = "कृपया एक प्रतिस्थापन शब्द प्रविष्ट करा",
+    chat_with_ai = "AI सोबत चॅट करा",
+    send = "पाठवा",
+    type_message = "तुमचा संदेश लिहा...",
+    ai_is_thinking = "AI विचार करत आहे...",
+    chat_title = "AI सोबत चॅट करा",
+    close = "बंद करा",
+    listen = "ऐका",
+  },
+  
+  ["Gujarati"] = {
+    select_typing_mode = "ટાઇપિંગ મોડ પસંદ કરો",
+    ai_settings = "AI સેટિંગ્સ",
+    source_language = "સ્રોત ભાષા (બદલવા માટે ક્લિક કરો)",
+    target_language = "લક્ષ્ય ભાષા (બદલવા માટે ક્લિક કરો)",
+    enable_translation = "અનુવાદ સક્ષમ કરો",
+    swap = "બદલો",
+    emoji_settings = "ઇમોજી સેટિંગ્સ",
+    more_options = "વધુ વિકલ્પો",
+    save_close = "સાચવો અને બંધ કરો",
+    
+    ai_settings_title = "AI સેટિંગ્સ",
+    select_ai_provider = "AI પ્રદાતા પસંદ કરો",
+    manage_api_keys = "API કીઓ મેનેજ કરો",
+    
+    emoji_settings_title = "ઇમોજી સેટિંગ્સ",
+    enable_smart_emojis = "સ્માર્ટ ઇમોજી સક્ષમ કરો",
+    emoji_quantity = "ઇમોજી જથ્થો",
+    
+    more_options_title = "વધુ વિકલ્પો",
+    other_settings = "અન્ય સેટિંગ્સ",
+    sound_vibration_settings = "ધ્વનિ અને વાઇબ્રેશન સેટિંગ્સ",
+    word_dictionary = "શબ્દકોશ",
+    about = "વિશે",
+    contact_us = "સંપર્ક કરો",
+    close = "બંધ કરો",
+    
+    other_settings_title = "અન્ય સેટિંગ્સ",
+    select_ui_lang = "UI ભાષા પસંદ કરો",
+    use_ai_translation = "AI અનુવાદનો ઉપયોગ કરો",
+    offline_mode = "ઑફલાઇન મોડ (ઇન્ટરનેટ વિના)",
+    copy_clipboard = "ટેક્સ્ટ ક્લિપબોર્ડ પર કૉપિ કરો",
+    end_action = "એન્ડ એક્શન (ટેક્સ્ટ એન્ડ વર્તન)",
+    none = "કંઈ નહીં",
+    new_line = "નવી લાઇન",
+    space = "સ્પેસ",
+    space_newline = "સ્પેસ + નવી લાઇન",
+    
+    sound_vibration_title = "ધ્વનિ અને વાઇબ્રેશન સેટિંગ્સ",
+    enable_vibration = "વાઇબ્રેશન ફીડબેક સક્ષમ કરો",
+    enable_typing_sound = "ટાઇપિંગ ધ્વનિ સક્ષમ કરો",
+    typing_sound_type = "ટાઇપિંગ ધ્વનિ પ્રકાર",
+    default_beep = "ડિફોલ્ટ બીપ",
+    soft_click = "સોફ્ટ ક્લિક",
+    sharp_pop = "શાર્પ પૉપ",
+    
+    word_dictionary_title = "શબ્દકોશ",
+    add_new_words = "શબ્દકોશમાં નવા શબ્દો ઉમેરો",
+    view_dictionary_words = "શબ્દકોશ શબ્દો જુઓ",
+    clear_dictionary = "શબ્દકોશ સાફ કરો",
+    
+    add_word_title = "શબ્દકોશમાં નવો શબ્દ ઉમેરો",
+    word_to_replace = "શબ્દ (જેને બદલવો છે):",
+    replacement_word = "પ્રતિસ્થાપન શબ્દ:",
+    save = "સાચવો",
+    cancel = "રદ કરો",
+    
+    delete_word = "શબ્દ કાઢી નાખો?",
+    delete_confirmation = "શબ્દકોશમાંથી '{}' કાઢી નાખો?",
+    delete = "કાઢી નાખો",
+    
+    clear_dict_title = "શબ્દકોશ સાફ કરો",
+    clear_dict_message = "શું તમે શબ્દકોશમાંથી બધા શબ્દો કાઢી નાખવા માંગો છો? આ પાછું કરી શકાતું નથી.",
+    clear_all = "બધા કાઢી નાખો",
+    
+    manage_api_title = "API કીઓ મેનેજ કરો",
+    openrouter_key = "OpenRouter કી",
+    get_openrouter_key = "OpenRouter કી મેળવો",
+    gemini_key = "Gemini કી",
+    get_gemini_key = "Gemini કી મેળવો",
+    groq_key = "Groq કી",
+    get_groq_key = "Groq કી મેળવો",
+    save_keys = "કીઓ સાચવો",
+    
+    about_title = "પ્લગઇન વિશે",
+    about_info = "ઉપયોગ કેવી રીતે કરવો:\n1. AI પ્રદાતા પસંદ કરો અને API કીઓ ઉમેરો.\n2. કોઈપણ ભાષાને લાંબા સમય સુધી દબાવીને ફેવરિટમાં ઉમેરો/કાઢો.\n3. ઇમોજી અને ઓટો-પંક્ચ્યુએશન આપમેળે ઉમેરાય છે.",
+    
+    contact_title = "સંપર્ક કરો",
+    join_telegram = "અમારા ટેલિગ્રામ ચેનલમાં જોડાઓ",
+    give_feedback = "ટેલિગ્રામ પર ફીડબેક આપો",
+    
+    target_lang_title = "લક્ષ્ય ભાષા (ફેવરિટ ઉમેરવા/કાઢવા માટે લાંબા સમય સુધી દબાવો)",
+    typing_lang_title = "ટાઇપિંગ ભાષા (ફેવરિટ ઉમેરવા/કાઢવા માટે લાંબા સમય સુધી દબાવો)",
+    removed_from_fav = "ફેવરિટમાંથી દૂર કર્યું",
+    added_to_fav = "ફેવરિટમાં ઉમેર્યું",
+    
+    word_added = "શબ્દ ઉમેર્યો: {} → {}",
+    dictionary_empty = "શબ્દકોશ ખાલી છે. પહેલા કેટલાક શબ્દો ઉમેરો.",
+    dictionary_words = "શબ્દકોશ શબ્દો ({} શબ્દો)",
+    deleted_word = "કાઢી નાખ્યું: {}",
+    dictionary_cleared = "શબ્દકોશ સફળતાપૂર્વક સાફ થયો",
+    
+    processing = "પ્રોસેસિંગ...",
+    key_missing = "કી ખૂટે છે",
+    connection_failed = "કનેક્શન નિષ્ફળ. કૃપા કરીને API કી અથવા ઇન્ટરનેટ ચેક કરો.",
+    please_enter_word = "કૃપા કરીને એક શબ્દ દાખલ કરો",
+    please_enter_replacement = "કૃપા કરીને એક પ્રતિસ્થાપન શબ્દ દાખલ કરો",
+    chat_with_ai = "AI સાથે ચેટ કરો",
+    send = "મોકલો",
+    type_message = "તમારો સંદેશ લખો...",
+    ai_is_thinking = "AI વિચાર કરી રહ્યું છે...",
+    chat_title = "AI સાથે ચેટ કરો",
+    close = "બંધ કરો",
+    listen = "સાંભળો",
+  },
+}
+
+local function getUIText(key, ...)
+  local lang = uiLanguage
+  local text = nil
+  if uiTexts[lang] and uiTexts[lang][key] then
+    text = uiTexts[lang][key]
+  else
+    text = uiTexts["English"][key] or key
+  end
+  local args = {...}
+  for i, arg in ipairs(args) do
+    text = text:gsub("{}", tostring(arg), 1)
+  end
+  return text
+end
+
+local dictionaryData = prefs.getString("word_dictionary", "{}")
+local changeTable = {}
+pcall(function() changeTable = cjson.decode(dictionaryData) end)
+if type(changeTable) ~= "table" then changeTable = {} end
+
+local langList = {
+  "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Assamese", "Azerbaijani",
+  "Basque", "Belarusian", "Bengali", "Bosnian", "Bulgarian", "Burmese", "Catalan",
+  "Cebuano", "Chichewa", "Chinese (Mandarin)", "Corsican", "Croatian", "Czech", "Danish",
+  "Dutch", "English", "Esperanto", "Estonian", "Filipino", "Finnish", "French",
+  "Galician", "Georgian", "German", "Greek", "Gujarati", "Haitian Creole", "Hausa",
+  "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo",
+  "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh",
+  "Khmer", "Kinyarwanda", "Korean", "Kurdish", "Kyrgyz", "Lao", "Latin", "Latvian",
+  "Lithuanian", "Luxembourgish", "Macedonian", "Malagasy", "Malay", "Malayalam",
+  "Maltese", "Maori", "Marathi", "Mongolian", "Nepali", "Norwegian", "Odia",
+  "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian",
+  "Samoan", "Scots Gaelic", "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala",
+  "Slovak", "Slovenian", "Somali", "Spanish", "Sundanese", "Swahili", "Swedish",
+  "Tajik", "Tamil", "Telugu", "Thai", "Turkish", "Ukrainian", "Urdu", "Uzbek",
+  "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba", "Zulu"
+}
+
+local function getLangCode(langName)
+  local map = {
+    ["Hindi"]="hi-IN", ["English"]="en-IN", ["Spanish"]="es-ES", ["French"]="fr-FR", 
+    ["German"]="de-DE", ["Gujarati"]="gu-IN", ["Marathi"]="mr-IN", ["Bengali"]="bn-IN", 
+    ["Telugu"]="te-IN", ["Tamil"]="ta-IN", ["Urdu"]="ur-PK", ["Arabic"]="ar-SA", 
+    ["Russian"]="ru-RU", ["Japanese"]="ja-JP", ["Korean"]="ko-KR", ["Chinese (Mandarin)"]="zh-CN",
+    ["Italian"]="it-IT", ["Portuguese"]="pt-PT", ["Dutch"]="nl-NL", ["Turkish"]="tr-TR",
+    ["Punjabi"]="pa-IN", ["Malayalam"]="ml-IN", ["Kannada"]="kn-IN", ["Odia"]="or-IN",
+    ["Assamese"]="as-IN", ["Sindhi"]="sd-IN", ["Nepali"]="ne-NP", ["Sinhala"]="si-LK"
+  }
+  return map[langName] or (string.sub(string.lower(langName), 1, 2) .. "-" .. string.sub(string.upper(langName), 1, 2))
+end
+
+local toneGen = nil
+
+function triggerSound()
+  if not soundEnabled then return end
+  pcall(function()
+    if not toneGen then toneGen = ToneGenerator(AudioManager.STREAM_SYSTEM, 100) end
+    if soundType == "Soft Click" then
+      toneGen.startTone(ToneGenerator.TONE_DTMF_0, 40)
+    elseif soundType == "Sharp Pop" then
+      toneGen.startTone(ToneGenerator.TONE_PROP_BEEP2, 40)
+    else
+      toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 50)
+    end
+  end)
+end
+
+function triggerVibration(vType)
+  if not vibrationEnabled then return end
+  pcall(function()
+    local vib = context.getSystemService(Context.VIBRATOR_SERVICE)
+    if vib then
+      if vType == "typing" then
+        vib.vibrate(150)
+      elseif vType == "settings" then
+        vib.vibrate(200)
+      end
+    end
+  end)
+end
+
+function announce(msg)
+  if not msg then return end
+  pcall(function() if service and service.speak then service.speak(msg) end end)
+end
+
+function openUrl(url)
+  local intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+  context.startActivity(intent)
+  if settingsDlg then
+    pcall(function() settingsDlg.dismiss() end)
+  end
+  if moreOptionsDlg then
+    pcall(function() moreOptionsDlg.dismiss() end)
+  end
+end
+
+function finalGuard(text)
+  if not text then return "" end
+  local t = text
+  local nums = {
+    ["one"]="1",["two"]="2",["three"]="3",["four"]="4",["five"]="5",
+    ["six"]="6",["seven"]="7",["eight"]="8",["nine"]="9",["ten"]="10",
+    ["One"]="1",["Two"]="2",["Three"]="3",["Four"]="4",["Five"]="5",
+    ["Six"]="6",["Seven"]="7",["Eight"]="8",["Nine"]="9",["Ten"]="10"
+  }
+  for k,v in pairs(nums) do t = t:gsub("%f[%a]"..k.."%f[%A]", v) end
+  return t
+end
+
+function applyDictionaryReplacement(text)
+  if not text or text == "" then return text end
+  local result = text
+  for originalWord, replacementWord in pairs(changeTable) do
+    result = result:gsub(originalWord, replacementWord)
+  end
+  return result
+end
+
+function processOffline(text, callback)
+  local t = text
+  if selectedLanguage == "Hindi" or selectedLanguage == "Marathi" or selectedLanguage == "Bengali" or selectedLanguage == "Gujarati" then
+    t = t .. " " 
+  else
+    t = t:gsub("^%l", string.upper)
+    t = t .. "."
+  end
+  callback(t)
+end
+
+function chatWithGroq(userMessage, callback)
+  if not userMessage or userMessage == "" then
+    if callback then callback("Please enter a message to chat.") end
+    return
+  end
+  
+  local apiKey = groqKey
+  if not apiKey or apiKey == "" then
+    if callback then callback("Error: Groq API Key Missing. Please add your Groq API Key in AI Settings.") end
+    return
+  end
+  
+  local apiUrl = "https://api.groq.com/openai/v1/chat/completions"
+  local model = "llama-3.3-70b-versatile"
+  
+  local systemPrompt = "You are a helpful, friendly AI assistant. You chat naturally and provide helpful answers. Keep responses conversational and engaging."
+  
+  local postData = {
+    model = model,
+    messages = {
+      {role = "system", content = systemPrompt},
+      {role = "user", content = userMessage}
+    },
+    temperature = 0.7,
+    max_tokens = 500
+  }
+  
+  local headers = {
+    ["Content-Type"] = "application/json",
+    ["Authorization"] = "Bearer " .. apiKey
+  }
+  
+  local jsonData = cjson.encode(postData)
+  
+  Http.post(apiUrl, jsonData, headers, function(status, data)
+    if status == 200 and data then
+      local ok, decoded = pcall(cjson.decode, data)
+      if ok and decoded then
+        if decoded.choices and decoded.choices[1] then
+          local reply = decoded.choices[1].message.content
+          if callback then callback(reply) end
+        elseif decoded.error and decoded.error.message then
+          if callback then callback("Error: " .. decoded.error.message) end
+        else
+          if callback then callback("Error: Invalid response from Groq API") end
+        end
+      else
+        if callback then callback("Error: Failed to parse API response") end
+      end
+    else
+      if callback then callback("Error: Connection failed. Please check your internet connection and Groq API Key.") end
+    end
+  end)
+end
+
+function startVoiceInput(callback)
+  if isListening then return end
+  isListening = true
+  
+  local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+  intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your question...")
+  
+  local sr = SpeechRecognizer.createSpeechRecognizer(context)
+  sr.setRecognitionListener({
+    onResults = function(res)
+      local matches = res.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+      if matches and matches.size() > 0 then
+        local spokenText = matches.get(0)
+        if callback then callback(spokenText) end
+      end
+      sr.destroy()
+      isListening = false
+    end,
+    onError = function(error)
+      sr.destroy()
+      isListening = false
+      if callback then callback(nil) end
+    end,
+    onReadyForSpeech = function(params)
+      triggerSound()
+    end
+  })
+  sr.startListening(intent)
+end
+
+function showChatDialog()
+  local dlg = LuaDialog(context)
+  dlg.setTitle(getUIText("chat_title"))
+  
+  local layout = {
+    LinearLayout,
+    orientation="vertical",
+    layout_width="fill",
+    layout_height="fill",
+    padding="10dp",
+    {
+      ScrollView,
+      id="scroll",
+      layout_width="fill",
+      layout_height="0dp",
+      layout_weight=1,
+      {
+        LinearLayout,
+        id="messages_container",
+        orientation="vertical",
+        layout_width="fill",
+        padding="5dp"
+      }
+    },
+    {
+      LinearLayout,
+      orientation="horizontal",
+      layout_width="fill",
+      layout_marginTop="10dp",
+      {
+        EditText,
+        id="input_msg",
+        hint=getUIText("type_message"),
+        layout_width="0dp",
+        layout_weight=1,
+        backgroundColor="#F5F5F5",
+        padding="10dp"
+      },
+      {
+        Button,
+        id="mic_btn",
+        text="🎤",
+        textSize="20sp",
+        backgroundColor="#4CAF50",
+        textColor="#FFFFFF",
+        padding="10dp",
+        layout_marginLeft="5dp"
+      },
+      {
+        Button,
+        id="send_btn",
+        text=getUIText("send"),
+        backgroundColor="#2196F3",
+        textColor="#FFFFFF",
+        padding="10dp",
+        layout_marginLeft="5dp"
+      },
+      {
+        Button,
+        id="close_chat_btn",
+        text=getUIText("close"),
+        backgroundColor="#F44336",
+        textColor="#FFFFFF",
+        padding="10dp",
+        layout_marginLeft="5dp"
+      }
+    }
+  }
+  
+  local view = loadlayout(layout)
+  dlg.setView(view)
+  dlg.show()
+  
+  local scroll = scroll
+  local container = messages_container
+  local input = input_msg
+  local sendBtn = send_btn
+  local micBtn = mic_btn
+  local closeBtn = close_chat_btn
+  
+  local function addMessage(text, isUser)
+    local msgLayout = LinearLayout(container.getContext())
+    msgLayout.setOrientation(LinearLayout.VERTICAL)
+    msgLayout.setLayoutParams(LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    
+    local marginLeft = isUser and 100 or 10
+    local marginRight = isUser and 10 or 100
+    
+    local params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    params.setMargins(marginLeft, 5, marginRight, 5)
+    msgLayout.setLayoutParams(params)
+    
+    local msgText = TextView(container.getContext())
+    msgText.setText(text)
+    msgText.setTextSize(14)
+    msgText.setPadding(15, 10, 15, 10)
+    
+    if isUser then
+      msgText.setBackgroundColor(0xFF2196F3)
+      msgText.setTextColor(0xFFFFFFFF)
+      msgText.setGravity(Gravity.RIGHT)
+    else
+      if text:match("^Error:") then
+        msgText.setBackgroundColor(0xFFFF5722)
+        msgText.setTextColor(0xFFFFFFFF)
+      else
+        msgText.setBackgroundColor(0xFFE0E0E0)
+        msgText.setTextColor(0xFF000000)
+      end
+      msgText.setGravity(Gravity.LEFT)
+    end
+    
+    msgLayout.addView(msgText)
+    container.addView(msgLayout)
+    
+    mainHandler.post(Runnable({
+      run = function()
+        scroll.fullScroll(ScrollView.FOCUS_DOWN)
+      end
+    }))
+  end
+  
+  local function sendMessage(msg)
+    if msg == "" then return end
+    
+    addMessage(msg, true)
+    input.setText("")
+    
+    addMessage(getUIText("ai_is_thinking"), false)
+    
+    chatWithGroq(msg, function(reply)
+      mainHandler.post(Runnable({
+        run = function()
+          if container.getChildCount() > 0 then
+            container.removeViewAt(container.getChildCount() - 1)
+          end
+          if reply and not reply:match("^Error:") then
+            addMessage(reply, false)
+            announce(reply)
+          else
+            addMessage(reply or "Sorry, I couldn't process that. Please check your API Key and internet connection.", false)
+            if reply then announce(reply) end
+          end
+        end
+      }))
+    end)
+  end
+  
+  sendBtn.setOnClickListener({
+    onClick = function(v)
+      local msg = input.getText().toString()
+      sendMessage(msg)
+    end
+  })
+  
+  micBtn.setOnClickListener({
+    onClick = function(v)
+      startVoiceInput(function(spokenText)
+        if spokenText and spokenText ~= "" then
+          input.setText(spokenText)
+          sendMessage(spokenText)
+        end
+      end)
+    end
+  })
+  
+  closeBtn.setOnClickListener({
+    onClick = function(v)
+      dlg.dismiss()
+    end
+  })
+  
+  input.setOnEditorActionListener({
+    onEditorAction = function(v, actionId, event)
+      if actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND then
+        local msg = input.getText().toString()
+        sendMessage(msg)
+        return true
+      end
+      return false
+    end
+  })
+end
+
+function processWithAI(text, isTranslatedAlready, callback)
+  local apiKey, apiUrl, modelList, payloadFormat
+  local minE, maxE = 1, 3
+  if emojiQty == "Medium" then minE, maxE = 3, 5 elseif emojiQty == "High" then minE, maxE = 5, 7 end
+
+  if selectedProvider == "OpenRouter" then
+    apiKey = orKey
+    apiUrl = "https://openrouter.ai/api/v1/chat/completions"
+    modelList = {"openai/gpt-4o", "openai/gpt-4o-mini"}
+    payloadFormat = "openai"
+  elseif selectedProvider == "Groq" then
+    apiKey = groqKey
+    apiUrl = "https://api.groq.com/openai/v1/chat/completions"
+    modelList = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}
+    payloadFormat = "openai"
+  elseif selectedProvider == "Gemini" then
+    apiKey = geminiKey
+    apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/"
+    modelList = {"gemini-2.0-flash-exp", "gemini-1.5-flash"}
+    payloadFormat = "google"
+  end
+
+  if (not apiKey or apiKey == "") then 
+    announce(selectedProvider .. " " .. getUIText("key_missing"))
+    return 
+  end
+
+  apiKey = apiKey:gsub("^%s*(.-)%s*$", "%1")
+
+  local transRule = ""
+  local transForceCmd = "CRITICAL: NO TRANSLATION ALLOWED! YOU MUST KEEP EVERY SINGLE WORD IN ITS ORIGINAL LANGUAGE! "
+  
+  if enableTranslation and useAITranslation and not isTranslatedAlready then
+    transRule = "TRANSLATION MODE ON (AI TRANSLATION): You MUST fully translate the spoken text into " .. targetLanguage .. " accurately. Maintain the original tone and meaning. Do NOT output the original language. Provide flawless formatting, advanced punctuation, and emojis."
+    transForceCmd = "CRITICAL: TRANSLATE TO " .. targetLanguage .. " REQUIRED! "
+  elseif isTranslatedAlready then
+    transRule = "TRANSLATION MODE ON: The text has already been accurately translated via Google Engine. Do NOT translate it again. Provide flawless formatting, advanced punctuation, and emojis."
+  else
+    transRule = [[
+TRANSLATION MODE OFF - ABSOLUTE PROHIBITION OF TRANSLATION:
+
+CRITICAL RULES (STRICT ENFORCEMENT):
+1. THIS IS A FORMATTING TASK, NOT TRANSLATION.
+2. NEVER TRANSLATE ANY NATIVE WORD TO ENGLISH. ABSOLUTE ZERO TOLERANCE.
+3. If input has "नमस्ते", output "नमस्ते" (NEVER "hello").
+4. If input has "समस्या", output "समस्या" (NEVER "problem").
+5. Every single word MUST remain in its exact original spoken language and script.
+6. DO NOT replace Hindi/Urdu/Gujarati/Marathi words with English equivalents under any circumstances.
+]]
+  end
+
+  local styleDirectives = "TONE: Auto-Correct. Fix minor spelling mistakes. DO NOT add extra information or filler."
+
+  local isProfessionalMode = (typingMode == "Professional Writer Mode")
+  local isCasualMode = (typingMode == "Casual Typing Mode")
+  
+  local scriptRule = ""
+  local userForceScriptCmd = ""
+
+  if typingMode == "Auto Detect Script" then
+    scriptRule = [[
+SCRIPT MAPPING (STRICT DICTIONARY-BACKED ENGINE):
+- THE FIRST WORD RULE: Pay intense attention to the very first word of the dictation. If it is a greeting like 'hello', 'hi', or 'hey', it MUST be output in A-Z Roman script (e.g., 'Hello'), NEVER in a native script.
+- CROSS-CHECK EVERY WORD: You must verify if each spoken word exists in the standard English dictionary.
+- IF IT IS AN ENGLISH DICTIONARY WORD: You are STRICTLY FORBIDDEN from outputting it in a native script. It MUST be written in A-Z Roman script. This applies to ALL English words (e.g., 'hello', 'problem', 'perfect', 'typing', 'mobile', 'setting', 'offline', 'mode') regardless of their position in the sentence.
+- Native language words MUST remain in their original native script. NEVER romanize native words.
+- ACRONYMS: Apply periods ONLY to genuine known abbreviations (e.g., C.I.D., A.T.M., V.I.P.). DO NOT format regular English words as acronyms.
+]]
+    userForceScriptCmd = "Enforce the FIRST WORD RULE. Convert ALL English dictionary words to A-Z Roman script."
+  
+  elseif isProfessionalMode then
+    scriptRule = [[
+[SYSTEM DIRECTIVE: PROFESSIONAL WRITER MODE - ULTRA PROFESSIONAL TYPING]
+[LANGUAGE: ]] .. selectedLanguage .. [[]
+[PRIORITY: HIGHEST - PROFESSIONAL QUALITY IS MANDATORY]
+
+You MUST transform the input text into HIGHLY PROFESSIONAL, FORMAL, and POLISHED content. This is NOT normal typing - this is PROFESSIONAL WRITING.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANDATORY PROFESSIONAL WRITING RULES (100% ENFORCEMENT):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. GRAMMAR PERFECTION (FOR EVERY LANGUAGE):
+   - Fix EVERY grammar error without exception
+   - Correct subject-verb agreement, tense, articles, prepositions
+   - Ensure flawless sentence construction matching the language's grammar rules
+   - Apply language-specific grammar (e.g., Hindi sandhi/samas, English parallel structure)
+
+2. PROFESSIONAL VOCABULARY UPGRADE:
+   - Replace casual words with formal alternatives (e.g., "get" → "obtain", "use" → "utilize")
+   - Change informal expressions to professional phrasing
+   - Remove fillers: "um", "like", "you know", "actually", "basically", "sort of"
+   - Add sophisticated vocabulary appropriate for business/formal context
+
+3. SENTENCE PROFESSIONALIZATION:
+   - Convert short, choppy sentences into smooth, flowing professional sentences
+   - Break extremely long sentences into clearer structures
+   - Add professional transitions: "Furthermore", "Nevertheless", "Consequently", "Therefore"
+   - Use active voice predominantly; passive voice only when professionally appropriate
+
+4. PROFESSIONAL TONE AND STYLE:
+   - Adopt confident, authoritative yet respectful professional tone
+   - Remove emotional or casual language
+   - Make writing crisp, clear, and impactful
+   - Match tone to context (email, report, documentation, formal letter)
+
+5. PERFECT PUNCTUATION AND FORMATTING:
+   - Add ALL necessary punctuation (periods, commas, semicolons, colons, etc.)
+   - Use Oxford comma for English
+   - Use language-appropriate quotation marks and punctuation
+   - Capitalize ALL proper nouns and sentence beginnings
+
+6. CLARITY AND PRECISION:
+   - Remove ALL ambiguity - every sentence must have clear meaning
+   - Eliminate redundancy and wordiness
+   - Ensure logical flow from one idea to the next
+   - Make every word count professionally
+
+7. LENGTH PRESERVATION:
+   - Keep approximately the same length as input
+   - DO NOT add new information, opinions, or facts
+   - DO NOT remove important original meaning
+
+8. CRITICAL - NO TRANSLATION TO ENGLISH:
+   - The output MUST remain in the SAME EXACT language as the input.
+   - NEVER translate native language sentences into English.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT REQUIREMENT:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Return ONLY the professionally written text.
+NO meta-text, NO explanations, NO prefixes.
+Just the clean, professional, grammatically perfect output.
+
+BEGIN PROFESSIONAL WRITING → 
+]]
+    userForceScriptCmd = "CRITICAL: Transform this into ULTRA PROFESSIONAL writing. Upgrade vocabulary. Fix ALL grammar. Add proper punctuation. KEEP THE TEXT IN ITS ORIGINAL NATIVE LANGUAGE. DO NOT TRANSLATE NATIVE WORDS TO ENGLISH. Output ONLY the professional text. NO explanations. For language: " .. selectedLanguage
+
+  elseif isCasualMode then
+    scriptRule = [[
+[SYSTEM DIRECTIVE: CASUAL CHAT MODE - NATURAL WHATSAPP STYLE]
+[LANGUAGE: ]] .. selectedLanguage .. [[]
+
+Transform the input text into a completely NATURAL, SMOOTH, and MODERN casual chat style. 
+Make it look like a text message sent to a close friend on WhatsApp or Telegram.
+
+CRITICAL CASUAL RULES:
+1. FIX VOICE TYPING ERRORS: Intelligently fix broken sentences, wrong homophones, and weird voice-to-text glitches. Make it flow perfectly.
+2. NATURAL TONE: Keep it highly conversational. Do NOT make it overly formal or robotic.
+3. SUBTLE IMPROVEMENTS: If a sentence is awkward, rephrase it slightly so it sounds like a native speaker chatting casually. Keep the core meaning 100% intact.
+4. NO CRINGE: Do NOT forcefully insert unnatural slang (like excessive 'yaar', 'bro', 'dude') unless the user actually spoke them or it perfectly fits the context.
+5. MODERN PUNCTUATION: Use natural chat punctuation. A single question mark (?), exclamation (!), or commas (,) for pauses. Avoid stiff semicolons.
+6. NO TRANSLATION: Keep the text in the exact language it was spoken in. DO NOT translate native words to English. Keep Hindi in Devanagari, English in Roman, etc.
+7. FLUIDITY: The final output must read smoothly, effortlessly, and friendly.
+
+OUTPUT REQUIREMENT:
+Return ONLY the final chat text. No meta-text, no explanations.
+]]
+    userForceScriptCmd = "Convert this to a natural, smooth, WhatsApp-style casual chat message. Fix any voice typing glitches. Keep it friendly. DO NOT TRANSLATE. Output ONLY the chat text. For language: " .. selectedLanguage
+
+  end
+
+  local acronymRule = [[
+ACRONYM & SHORT FORM FORMATTING:
+- Ensure ANY spoken sequence of individual letters or unknown short forms (like V I T, V I D, C I D, A P I) is forcefully formatted WITH dots (e.g., V.I.T., V.I.D., C.I.D., A.P.I.). Do NOT alter or guess the letters spoken.
+]]
+
+  local emojiRules = ""
+  if isProfessionalMode then
+    emojiRules = emojiEnabled and ([[
+EMOJIS: Insert between 1 and ]] .. maxE .. [[ professional and contextually relevant emojis at the end. Use sparingly - only when they add genuine value. Prefer subtle, professional emojis over flashy ones.
+]]) or "EMOJIS: DO NOT ADD EMOJIS."
+  elseif isCasualMode then
+    emojiRules = emojiEnabled and ([[
+EMOJIS: Insert between 1 and ]] .. maxE .. [[ casual, friendly emojis like 😊, 😄, 👍, 🤔, 😅, 🎉 based on context. Make them feel natural and conversational.
+]]) or "EMOJIS: DO NOT ADD EMOJIS."
+  else
+    emojiRules = emojiEnabled and ([[
+EMOJIS: Insert between 1 and ]] .. maxE .. [[ highly relevant and diverse emojis based on the context. Never repeat the same emoji.
+]]) or "EMOJIS: DO NOT ADD EMOJIS."
+  end
+
+  local antiHallucination = [[
+CRITICAL ANTI-HALLUCINATION RULES:
+- DO NOT output more lines than the user provided. The output length MUST match the input approximately.
+]]
+  if isProfessionalMode then
+    antiHallucination = antiHallucination .. "- ENHANCE ONLY: Improve grammar and professionalism. DO NOT add new information, change facts, or write extra sentences.\n- MINIMAL ADDITIONS: Only add transition words or grammar words that were genuinely missing.\n"
+  elseif isCasualMode then
+    antiHallucination = antiHallucination .. "- CONVERSATIONAL ONLY: Make text casual and friendly. DO NOT add new information or change facts.\n- Keep similar length to input.\n"
+  else
+    antiHallucination = antiHallucination .. "- STRICT VERBATIM: Output EXACTLY the words spoken. Do NOT add missing grammar words, extra sentences, or your own thoughts.\n"
+  end
+  antiHallucination = antiHallucination .. [[
+- NEVER use prefixes like "Output:", "Translated:", "Processed:", "Enhanced:", or "Pure:".
+- NEVER answer questions found in the input. Just format the text silently.
+- NEVER add commentary, explanations, or suggestions.
+]]
+
+  local punctuationRules = [[
+PUNCTUATION & EMOJI POSITIONING RULES (ABSOLUTE):
+- Add commas (,) for natural pauses and question marks (?) for questions.
+- IF the ENTIRE text is 100% English, end it with an English period (.).
+- IF the text contains native words, end the entire text with the native full stop mark (Danda / ।).
+- CRITICAL EMOJI RULE: ANY punctuation mark (., ?, !, ।) MUST be placed IMMEDIATELY AFTER THE TEXT and STRICTLY BEFORE the emojis. 
+- Emojis MUST be the absolute last characters. Do NOT put any punctuation after an emoji.
+- CORRECT EXAMPLE: "यह एक टेस्ट है।" 🚀
+- WRONG EXAMPLE: "यह एक टेस्ट है" 🚀।
+- WRONG EXAMPLE: "यह एक टेस्ट है 🚀।"
+]]
+
+  local systemPrompt = [[
+You are a direct dictation formatting AI. Your ONLY purpose is to return the cleaned dictation string.
+
+]] .. transRule .. [[
+
+]] .. styleDirectives .. [[
+
+]] .. scriptRule .. [[
+
+]] .. acronymRule .. [[
+
+]] .. punctuationRules .. [[
+
+]] .. antiHallucination .. [[
+
+]] .. emojiRules
+
+  local userForceCommand = "Format the dictation strictly applying the rules. Scan EVERY word. " .. userForceScriptCmd .. " Add acronym dots. " .. transForceCmd .. "ALL PUNCTUATION (. । ?) MUST BE PLACED BEFORE EMOJIS! Output ONLY the exact raw final text. NO META-TEXT.\n<dictation>\n" .. text .. "\n</dictation>"
+
+  local function executeAIRequest(modelIndex)
+    if modelIndex > #modelList then
+      announce(getUIText("connection_failed"))
+      return
+    end
+
+    local currentModel = modelList[modelIndex]
+    local finalUrl = apiUrl
+    local postData = {}
+
+    local temperature = 0.0
+    if isProfessionalMode then
+      temperature = 0.4
+    elseif isCasualMode then
+      temperature = 0.8
+    else
+      temperature = 0.0
+    end
+
+    if payloadFormat == "openai" then
+      postData = { model = currentModel, messages = {{role="system", content=systemPrompt}, {role="user", content=userForceCommand}}, temperature = temperature }
+    elseif payloadFormat == "google" then
+      finalUrl = apiUrl .. currentModel .. ":generateContent?key=" .. apiKey
+      postData = { system_instruction = {parts = {{text = systemPrompt}}}, contents = {{parts = {{text = userForceCommand}}}}, generationConfig = {temperature = temperature} }
+    end
+
+    local headers = {
+      ["Content-Type"] = "application/json",
+      ["Accept"] = "application/json"
+    }
+    
+    if payloadFormat == "openai" then
+      headers["Authorization"] = "Bearer " .. apiKey
+    end
+
+    Http.post(finalUrl, cjson.encode(postData), headers, function(status, data)
+      if status == 200 and data then
+        local ok, decoded = pcall(cjson.decode, data)
+        if ok and decoded then
+          local outputText = nil
+          if payloadFormat == "openai" and decoded.choices and decoded.choices[1] then
+            outputText = decoded.choices[1].message.content
+          elseif payloadFormat == "google" and decoded.candidates and decoded.candidates[1] then
+            outputText = decoded.candidates[1].content.parts[1].text
+          end
+
+          if outputText then
+            callback(outputText)
+            return
+          end
+        end
+      end
+      executeAIRequest(modelIndex + 1)
+    end)
+  end
+
+  executeAIRequest(1)
+end
+
+function trim(s)
+    if s == nil then return "" end
+    return tostring(s):gsub("^%s*(.-)%s*$", "%1")
+end
+
+function showUpdateErrorDialog(title, message)
+    mainHandler.post(Runnable({
+        run = function()
+            local errorDialog = LuaDialog(context)
+            errorDialog.setTitle(title)
+            errorDialog.setMessage(message)
+            errorDialog.setButton(getUIText("close"), function()
+                errorDialog.dismiss()
+            end)
+            errorDialog.show()
+        end
+    }))
+end
+
+function performUpdate(mainCode, onlineVersion)
+    if not mainCode or trim(mainCode) == "" then
+        showUpdateErrorDialog("Update Failed", "Update script is empty.")
+        return
+    end
+    
+    updateInProgress = true
+    
+    local function updateProcess()
+        local success = false
+        local tempPath = currentFilePath .. ".tmp"
+        local bakPath = currentFilePath .. ".bak"
+        
+        pcall(function()
+            local f = io.open(currentFilePath, "w")
+            if f then
+                f:write(mainCode)
+                f:close()
+                local v = io.open(currentFilePath, "r")
+                if v then
+                    local content = v:read("*a")
+                    v:close()
+                    if content and #content == #mainCode then
+                        success = true
+                    end
+                end
+            end
+        end)
+        
+        if not success then
+            pcall(function()
+                local tf = io.open(tempPath, "w")
+                if tf then
+                    tf:write(mainCode)
+                    tf:close()
+                    
+                    os.remove(bakPath)
+                    os.rename(currentFilePath, bakPath)
+                    os.rename(tempPath, currentFilePath)
+                    
+                    local v = io.open(currentFilePath, "r")
+                    if v then
+                        local content = v:read("*a")
+                        v:close()
+                        if content and #content == #mainCode then
+                            success = true
+                        end
+                    end
+                end
+            end)
+        end
+        
+        if not success then
+            pcall(function()
+                local File = luajava.bindClass("java.io.File")
+                local FileOutputStream = luajava.bindClass("java.io.FileOutputStream")
+                local String = luajava.bindClass("java.lang.String")
+                
+                local curF = File(currentFilePath)
+                local bakF = File(bakPath)
+                local tmpF = File(tempPath)
+                
+                if tmpF.exists() then tmpF.delete() end
+                
+                local fos = FileOutputStream(tmpF)
+                fos.write(String(mainCode).getBytes("UTF-8"))
+                fos.close()
+                
+                if bakF.exists() then bakF.delete() end
+                curF.renameTo(bakF)
+                tmpF.renameTo(File(currentFilePath))
+                
+                local v = io.open(currentFilePath, "r")
+                if v then
+                    local content = v:read("*a")
+                    v:close()
+                    if content and #content == #mainCode then
+                        success = true
+                    end
+                end
+            end)
+        end
+        
+        if not success then
+            pcall(function()
+                os.execute("rm -f '" .. bakPath .. "'")
+                os.execute("mv '" .. currentFilePath .. "' '" .. bakPath .. "'")
+                os.execute("mv '" .. tempPath .. "' '" .. currentFilePath .. "'")
+                
+                local v = io.open(currentFilePath, "r")
+                if v then
+                    local content = v:read("*a")
+                    v:close()
+                    if content and #content == #mainCode then
+                        success = true
+                    end
+                end
+            end)
+        end
+        
+        if success then
+            updateInProgress = false
+            mainHandler.post(Runnable({
+                run = function()
+                    local successDialog = LuaDialog(context)
+                    successDialog.setTitle("Update Successful")
+                    successDialog.setMessage("Plugin successfully updated to version " .. onlineVersion .. ".\n\nPlugin will restart automatically.")
+                    successDialog.setButton("OK", function()
+                        successDialog.dismiss()
+                        if moreOptionsDlg then pcall(function() moreOptionsDlg.dismiss() end) end
+                        if settingsDlg then pcall(function() settingsDlg.dismiss() end) end
+                        mainHandler.postDelayed(Runnable({
+                            run = function()
+                                local func, err = loadfile(currentFilePath)
+                                if func then pcall(func) else announce("Error reloading plugin") end
+                            end
+                        }), 2000)
+                    end)
+                    successDialog.show()
+                end
+            }))
+        else
+            updateInProgress = false
+            showUpdateErrorDialog("Update Failed", "Update failed please, try again later.")
+        end
+    end
+    
+    local updateThread = Thread(luajava.bindClass("java.lang.Runnable"){
+        run = updateProcess
+    })
+    updateThread.start()
+end
+
+function checkForUpdates(manualCheck)
+    if updateInProgress then
+        if manualCheck then
+            showUpdateErrorDialog("Update In Progress", "An update is already in progress. Please wait.")
+        end
+        return
+    end
+    
+    if manualCheck then announce("Checking for updates...") end
+    
+    local timestamp = tostring(os.time())
+    local Http = luajava.bindClass("com.androlua.Http")
+    if not Http then Http = import("com.androlua.Http") end
+    
+    Http.get(versionUrl .. "?t=" .. timestamp, function(code, response)
+        if code == 200 and response then
+            local onlineVersion = trim(response)
+            if onlineVersion ~= "" and onlineVersion ~= currentAppVersion then
+                Http.get(updateScriptUrl .. "?t=" .. timestamp, function(code2, mainCode)
+                    if code2 == 200 and mainCode and trim(mainCode) ~= "" then
+                        Http.get(notesUrl .. "?t=" .. timestamp, function(nCode, notesData)
+                            local releaseNotes = "A new version (" .. onlineVersion .. ") is available.\nCurrent version: " .. currentAppVersion .. "\n\nWould you like to update now?"
+                            if nCode == 200 and notesData then
+                                releaseNotes = "A new version (" .. onlineVersion .. ") is available.\n\nRelease Notes:\n" .. notesData .. "\n\nWould you like to update now?"
+                            end
+                            
+                            mainHandler.post(Runnable({
+                                run = function()
+                                    local updateAlertDlg = LuaDialog(context)
+                                    updateAlertDlg.setTitle("Update Available!")
+                                    updateAlertDlg.setMessage(releaseNotes)
+                                    updateAlertDlg.setButton("Update Now", function()
+                                        updateAlertDlg.dismiss()
+                                        performUpdate(mainCode, onlineVersion)
+                                    end)
+                                    updateAlertDlg.setButton2("Later", function()
+                                        updateAlertDlg.dismiss()
+                                    end)
+                                    updateAlertDlg.show()
+                                end
+                            }))
+                        end)
+                    elseif manualCheck then
+                        showUpdateErrorDialog("Update Failed", "Failed to fetch update script.")
+                    end
+                end)
+            else
+                if manualCheck then announce("You are on the latest version.") end
+            end
+        else
+            if manualCheck then announce("Failed to check for updates.") end
+        end
+    end)
+end
+
+function showWordDictionaryDialog()
+  local dlg = LuaDialog(context)
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("word_dictionary_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="20dp", gravity="center"},
+    {Button, id="add_word_btn", text=getUIText("add_new_words"), backgroundColor="#4CAF50", textColor="#FFFFFF", layout_marginBottom="15dp"},
+    {Button, id="view_words_btn", text=getUIText("view_dictionary_words"), backgroundColor="#2196F3", textColor="#FFFFFF", layout_marginBottom="15dp"},
+    {Button, id="clear_dict_btn", text=getUIText("clear_dictionary"), backgroundColor="#F44336", textColor="#FFFFFF", layout_marginBottom="20dp"},
+    {Button, id="close_dict_btn", text=getUIText("close"), backgroundColor="#9E9E9E", textColor="#FFFFFF"}
+  }
+  local view = loadlayout(layout)
+  dlg.setView(view).show()
+  
+  add_word_btn.onClick = function()
+    dlg.dismiss()
+    showAddWordDialog()
+  end
+  
+  view_words_btn.onClick = function()
+    dlg.dismiss()
+    showViewDictionaryDialog()
+  end
+  
+  clear_dict_btn.onClick = function()
+    dlg.dismiss()
+    showClearDictionaryConfirmDialog()
+  end
+  
+  close_dict_btn.onClick = function()
+    dlg.dismiss()
+  end
+end
+
+function showAddWordDialog()
+  local dlg = LuaDialog(context)
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("add_word_title"), textSize="18sp", textColor="#2196F3", layout_marginBottom="15dp", gravity="center"},
+    {TextView, text=getUIText("word_to_replace"), layout_marginBottom="5dp"},
+    {EditText, id="original_word_et", hint="e.g., hello", layout_marginBottom="15dp", backgroundColor="#F5F5F5", padding="10dp"},
+    {TextView, text=getUIText("replacement_word"), layout_marginBottom="5dp"},
+    {EditText, id="replacement_word_et", hint="e.g., नमस्ते", layout_marginBottom="20dp", backgroundColor="#F5F5F5", padding="10dp"},
+    {LinearLayout, orientation="horizontal",
+      {Button, id="save_word_btn", text=getUIText("save"), backgroundColor="#4CAF50", textColor="#FFFFFF", layout_weight=1, layout_marginRight="5dp"},
+      {Button, id="cancel_word_btn", text=getUIText("cancel"), backgroundColor="#F44336", textColor="#FFFFFF", layout_weight=1}
+    }
+  }
+  local view = loadlayout(layout)
+  dlg.setView(view).show()
+  
+  save_word_btn.onClick = function()
+    local originalWord = tostring(original_word_et.text):gsub("^%s*(.-)%s*$", "%1")
+    local replacementWord = tostring(replacement_word_et.text):gsub("^%s*(.-)%s*$", "%1")
+    
+    if originalWord == "" then
+      announce(getUIText("please_enter_word"))
+      return
+    end
+    
+    if replacementWord == "" then
+      announce(getUIText("please_enter_replacement"))
+      return
+    end
+    
+    changeTable[originalWord] = replacementWord
+    local saveJson = cjson.encode(changeTable)
+    editor.putString("word_dictionary", saveJson).commit()
+    announce(getUIText("word_added", originalWord, replacementWord))
+    dlg.dismiss()
+    showWordDictionaryDialog()
+  end
+  
+  cancel_word_btn.onClick = function()
+    dlg.dismiss()
+    showWordDictionaryDialog()
+  end
+end
+
+function showViewDictionaryDialog()
+  if not next(changeTable) then
+    announce(getUIText("dictionary_empty"))
+    showWordDictionaryDialog()
+    return
+  end
+  
+  local dictList = {}
+  for orig, repl in pairs(changeTable) do
+    table.insert(dictList, orig .. " → " .. repl)
+  end
+  table.sort(dictList)
+  
+  local listDlg = LuaDialog(context)
+  listDlg.setTitle(getUIText("dictionary_words", #dictList))
+  local list = ListView(context)
+  list.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, dictList))
+  list.onItemClick = function(parent, view, position, id)
+  end
+  list.onItemLongClick = function(parent, view, position, id)
+    local selectedItem = dictList[position + 1]
+    local originalWord = selectedItem:match("^(.-) →")
+    if originalWord then
+      local confirmDlg = LuaDialog(context)
+      confirmDlg.setTitle(getUIText("delete_word"))
+      confirmDlg.setMessage(getUIText("delete_confirmation", originalWord))
+      confirmDlg.setButton(getUIText("delete"), function()
+        changeTable[originalWord] = nil
+        local saveJson = cjson.encode(changeTable)
+        editor.putString("word_dictionary", saveJson).commit()
+        announce(getUIText("deleted_word", originalWord))
+        confirmDlg.dismiss()
+        listDlg.dismiss()
+        showViewDictionaryDialog()
+      end)
+      confirmDlg.setButton2(getUIText("cancel"), function() confirmDlg.dismiss() end)
+      confirmDlg.show()
+    end
+    return true
+  end
+  listDlg.setView(list)
+  listDlg.setButton(getUIText("close"), function() listDlg.dismiss() end)
+  listDlg.show()
+end
+
+function showClearDictionaryConfirmDialog()
+  local confirmDlg = LuaDialog(context)
+  confirmDlg.setTitle(getUIText("clear_dict_title"))
+  confirmDlg.setMessage(getUIText("clear_dict_message"))
+  confirmDlg.setButton(getUIText("clear_all"), function()
+    changeTable = {}
+    editor.putString("word_dictionary", "{}").commit()
+    announce(getUIText("dictionary_cleared"))
+    confirmDlg.dismiss()
+    showWordDictionaryDialog()
+  end)
+  confirmDlg.setButton2(getUIText("cancel"), function() confirmDlg.dismiss(); showWordDictionaryDialog() end)
+  confirmDlg.show()
+end
+
+function showLanguageSelectDialog(isTarget, sourceBtn)
+  local favStr = prefs.getString("fav_languages", "[]")
+  local favs = {}
+  pcall(function() favs = cjson.decode(favStr) end)
+  if type(favs) ~= "table" then favs = {} end
+
+  local sortedList = {}
+  local displayList = {}
+  local counter = 1
+
+  for _, fl in ipairs(favs) do
+    table.insert(sortedList, fl)
+    table.insert(displayList, counter .. ". " .. fl .. " ⭐")
+    counter = counter + 1
+  end
+  
+  for _, l in ipairs(langList) do
+    local isFav = false
+    for _, fl in ipairs(favs) do
+      if l == fl then isFav = true break end
+    end
+    if not isFav then 
+      table.insert(sortedList, l)
+      table.insert(displayList, counter .. ". " .. l)
+      counter = counter + 1
+    end
+  end
+
+  local listDlg = LuaDialog(context)
+  listDlg.setTitle(isTarget and getUIText("target_lang_title") or getUIText("typing_lang_title"))
+  local list = ListView(context)
+  list.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, displayList))
+  
+  list.onItemClick = function(parent, view, position, id)
+    local selected = sortedList[position + 1]
+    if isTarget then
+      targetLanguage = selected
+    else
+      selectedLanguage = selected
+    end
+    if sourceBtn then sourceBtn.setText(selected) end
+    listDlg.dismiss()
+  end
+  
+  list.onItemLongClick = function(parent, view, position, id)
+    local selected = sortedList[position + 1]
+    local isFav = false
+    local favIdx = -1
+    for i, fl in ipairs(favs) do
+      if fl == selected then
+        isFav = true
+        favIdx = i
+        break
+      end
+    end
+    
+    if isFav then
+      table.remove(favs, favIdx)
+      announce(selected .. " " .. getUIText("removed_from_fav"))
+    else
+      table.insert(favs, selected)
+      announce(selected .. " " .. getUIText("added_to_fav"))
+    end
+    
+    editor.putString("fav_languages", cjson.encode(favs)).commit()
+    listDlg.dismiss()
+    showLanguageSelectDialog(isTarget, sourceBtn)
+    return true
+  end
+  
+  listDlg.setView(list)
+  listDlg.show()
+end
+
+function showOtherSettingsDialog()
+  local uiLanguagesList = {"English", "Hindi", "Urdu", "Marathi", "Gujarati"}
+  local endActionsList = {getUIText("none"), getUIText("new_line"), getUIText("space"), getUIText("space_newline")}
+  
+  local dlg = LuaDialog(context)
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("other_settings_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="20dp", gravity="center"},
+    {TextView, text=getUIText("select_ui_lang"), layout_marginBottom="5dp"},
+    {Spinner, id="ui_lang_sp", layout_marginBottom="15dp"},
+    {CheckBox, id="sub_ai_trans_chk", text=getUIText("use_ai_translation"), checked=useAITranslation, layout_marginBottom="15dp"},
+    {CheckBox, id="sub_offline_chk", text=getUIText("offline_mode"), checked=offlineMode, layout_marginBottom="15dp"},
+    {CheckBox, id="sub_copy_chk", text=getUIText("copy_clipboard"), checked=copyToClipboard, layout_marginBottom="15dp"},
+    {TextView, text=getUIText("end_action"), layout_marginBottom="5dp"},
+    {Spinner, id="sub_end_sp", layout_marginBottom="20dp"},
+    {Button, id="sub_other_save_btn", text=getUIText("save_close"), backgroundColor="#4CAF50", textColor="#FFFFFF"}
+  }
+  dlg.setView(loadlayout(layout)).show()
+  
+  ui_lang_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, uiLanguagesList))
+  for i,v in ipairs(uiLanguagesList) do if v == uiLanguage then ui_lang_sp.setSelection(i-1) end end
+  
+  sub_end_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, endActionsList))
+  local endActionText = getUIText(string.lower(endAction:gsub(" ", "_"):gsub("%+", "_plus")))
+  for i,v in ipairs(endActionsList) do 
+    if v == endAction or v == endActionText then 
+      sub_end_sp.setSelection(i-1) 
+      break
+    end
+  end
+
+  sub_other_save_btn.onClick = function()
+    uiLanguage = uiLanguagesList[ui_lang_sp.getSelectedItemPosition() + 1]
+    offlineMode = sub_offline_chk.isChecked()
+    useAITranslation = sub_ai_trans_chk.isChecked()
+    copyToClipboard = sub_copy_chk.isChecked()
+    local selectedEndAction = endActionsList[sub_end_sp.getSelectedItemPosition() + 1]
+    if selectedEndAction == getUIText("none") then endAction = "None"
+    elseif selectedEndAction == getUIText("new_line") then endAction = "New Line"
+    elseif selectedEndAction == getUIText("space") then endAction = "Space"
+    elseif selectedEndAction == getUIText("space_newline") then endAction = "Space + New Line"
+    end
+    editor.putString("ui_language", uiLanguage).putBoolean("use_ai_trans", useAITranslation).commit()
+    dlg.dismiss()
+  end
+end
+
+function showAISettingsDialog()
+  local providers = {"OpenRouter", "Gemini", "Groq"}
+  local dlg = LuaDialog(context)
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("ai_settings_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="20dp", gravity="center"},
+    {TextView, text=getUIText("select_ai_provider"), layout_marginBottom="5dp"},
+    {Spinner, id="sub_provider_sp", layout_marginBottom="15dp"},
+    {Button, id="sub_manage_api_btn", text=getUIText("manage_api_keys"), backgroundColor="#FF9800", textColor="#FFFFFF", layout_marginBottom="20dp"},
+    {Button, id="sub_ai_save_btn", text=getUIText("save_close"), backgroundColor="#4CAF50", textColor="#FFFFFF"}
+  }
+  dlg.setView(loadlayout(layout)).show()
+  
+  sub_provider_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, providers))
+  for i,v in ipairs(providers) do if v == selectedProvider then sub_provider_sp.setSelection(i-1) end end
+  
+  sub_manage_api_btn.onClick = function() showApiDialog() end
+  
+  sub_ai_save_btn.onClick = function()
+    selectedProvider = providers[sub_provider_sp.getSelectedItemPosition() + 1]
+    editor.putString("provider", selectedProvider).commit()
+    dlg.dismiss()
+  end
+end
+
+function showAboutDialog()
+  local dlg = LuaDialog(context)
+  local info = [[
+EXTREME AI VOICE TYPER v2.9
+Developer: Anurag Anant
+
+✨ WHAT'S NEW (v2.9):
+• Translate Textbox: Translate existing text into 30 languages directly.
+• AI Translation Mode: Enable "Use AI Translation" in Other Settings to use advanced AI instead of Google Translate.
+• Faster Performance: Removed Deepgram and Pure Mode for a cleaner experience.
+• Improved Typing: All modes now automatically and naturally fix voice typing errors.
+
+📌 HOW TO USE:
+1. AI Setup: Select AI Provider and add your API Keys in AI Settings.
+2. Quick Translation: Set "Translate Text From Textbox" in Extension Startup Action for quick access.
+3. Favorites: Long press any language to Add or Remove it from your Favorites list.
+4. Smart Formatting: Punctuation and emojis are added automatically based on your settings.
+]]
+  
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("about_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="15dp", gravity="center"},
+    {ScrollView, layout_width="fill", layout_weight=1, layout_marginBottom="20dp",
+      {TextView, text=info, textSize="15sp", textColor="#333333"}
+    },
+    {Button, text=getUIText("close"), backgroundColor="#F44336", textColor="#FFFFFF", onClick=function() dlg.dismiss() end}
+  }
+  dlg.setView(loadlayout(layout)).show()
+end
+
+function showContactDialog()
+  local dlg = LuaDialog(context)
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("contact_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="20dp", gravity="center"},
+    {Button, text=getUIText("join_telegram"), onClick=function() openUrl("https://t.me/Ttforblind") end, backgroundColor="#2196F3", textColor="#FFFFFF", layout_marginBottom="15dp"},
+    {Button, text=getUIText("give_feedback"), onClick=function() openUrl("https://t.me/Kingrag2029") end, backgroundColor="#FF9800", textColor="#FFFFFF", layout_marginBottom="20dp"},
+    {Button, text=getUIText("close"), backgroundColor="#F44336", textColor="#FFFFFF", onClick=function() dlg.dismiss() end}
+  }
+  dlg.setView(loadlayout(layout)).show()
+end
+
+function showSoundVibSettingsDialog()
+  local sList = {getUIText("default_beep"), getUIText("soft_click"), getUIText("sharp_pop")}
+  local dlg = LuaDialog(context)
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("sound_vibration_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="15dp", gravity="center"},
+    {CheckBox, id="sub_vib_chk", text=getUIText("enable_vibration"), checked=vibrationEnabled, layout_marginBottom="15dp"},
+    {CheckBox, id="sub_sound_chk", text=getUIText("enable_typing_sound"), checked=soundEnabled, layout_marginBottom="15dp"},
+    {TextView, text=getUIText("typing_sound_type"), layout_marginBottom="5dp"},
+    {Spinner, id="sub_sound_sp", layout_marginBottom="20dp"},
+    {Button, id="sub_sv_save_btn", text=getUIText("save_close"), backgroundColor="#4CAF50", textColor="#FFFFFF"}
+  }
+  dlg.setView(loadlayout(layout)).show()
+  sub_sound_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, sList))
+  local soundTypeText = getUIText(soundType:lower():gsub(" ", "_"))
+  for i,v in ipairs(sList) do 
+    if v == soundType or v == soundTypeText then 
+      sub_sound_sp.setSelection(i-1) 
+      break
+    end
+  end
+  sub_sv_save_btn.onClick = function()
+    vibrationEnabled = sub_vib_chk.isChecked()
+    soundEnabled = sub_sound_chk.isChecked()
+    local selectedSound = sList[sub_sound_sp.getSelectedItemPosition() + 1]
+    if selectedSound == getUIText("default_beep") then soundType = "Default Beep"
+    elseif selectedSound == getUIText("soft_click") then soundType = "Soft Click"
+    elseif selectedSound == getUIText("sharp_pop") then soundType = "Sharp Pop"
+    end
+    dlg.dismiss()
+  end
+end
+
+function showMoreOptionsDialog()
+  moreOptionsDlg = LuaDialog(context)
+  local layout = {
+    ScrollView, layout_width="fill",
+    {LinearLayout, orientation="vertical", padding="20dp",
+      {TextView, text=getUIText("more_options_title"), textSize="22sp", textColor="#2196F3", layout_marginBottom="20dp", gravity="center"},
+      {Button, text="Check For Updates", onClick=function() checkForUpdates(true); moreOptionsDlg.dismiss() end, backgroundColor="#FF5722", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, text=getUIText("chat_with_ai"), onClick=function() 
+        if not groqKey or groqKey == "" then
+          announce("Please add your Groq API Key in AI Settings first.")
+          return
+        end
+        moreOptionsDlg.dismiss()
+        showChatDialog()
+      end, backgroundColor="#FF9800", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, text=getUIText("other_settings"), onClick=function() showOtherSettingsDialog() end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, text=getUIText("sound_vibration_settings"), onClick=function() showSoundVibSettingsDialog() end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, text=getUIText("word_dictionary"), onClick=function() showWordDictionaryDialog() end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, text=getUIText("about"), onClick=function() showAboutDialog() end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, text=getUIText("contact_us"), onClick=function() showContactDialog() end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="20dp"},
+      {Button, text=getUIText("close"), backgroundColor="#F44336", textColor="#FFFFFF", onClick=function() moreOptionsDlg.dismiss() end}
+    }
+  }
+  moreOptionsDlg.setView(loadlayout(layout)).show()
+end
+
+function showApiDialog()
+  local layout = {
+    ScrollView, layout_width="fill",
+    {LinearLayout, orientation="vertical", padding="15dp",
+      {TextView, text=getUIText("manage_api_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="15dp"},
+      {TextView, text=getUIText("openrouter_key")}, {EditText, id="or_et", text=orKey},
+      {Button, text=getUIText("get_openrouter_key"), onClick=function() openUrl("https://openrouter.ai/keys") end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {TextView, text=getUIText("gemini_key")}, {EditText, id="gem_et", text=geminiKey},
+      {Button, text=getUIText("get_gemini_key"), onClick=function() openUrl("https://aistudio.google.com/app/apikey") end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {TextView, text=getUIText("groq_key")}, {EditText, id="groq_et", text=groqKey},
+      {Button, text=getUIText("get_groq_key"), onClick=function() openUrl("https://console.groq.com/keys") end, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      {Button, id="save_api_btn", text=getUIText("save_keys"), backgroundColor="#2196F3", textColor="#FFFFFF"}
+    }
+  }
+  local view = loadlayout(layout)
+  local dlg = LuaDialog(context).setView(view).show()
+  save_api_btn.onClick = function()
+    editor.putString("or_key", tostring(or_et.text)).putString("gemini_key", tostring(gem_et.text)).putString("groq_key", tostring(groq_et.text)).commit()
+    orKey = tostring(or_et.text); geminiKey = tostring(gem_et.text); groqKey = tostring(groq_et.text)
+    dlg.dismiss()
+  end
+end
+
+function showEmojiSettingsDialog()
+  local qtyList = {"Low", "Medium", "High"}
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {TextView, text=getUIText("emoji_settings_title"), textSize="20sp", textColor="#2196F3", layout_marginBottom="15dp", gravity="center"},
+    {CheckBox, id="sub_emoji_chk", text=getUIText("enable_smart_emojis"), checked=emojiEnabled, layout_marginBottom="15dp"},
+    {TextView, text=getUIText("emoji_quantity"), layout_marginBottom="5dp"},
+    {Spinner, id="sub_emoji_qty_sp", layout_marginBottom="20dp"},
+    {Button, id="sub_emoji_save_btn", text=getUIText("save_close"), backgroundColor="#4CAF50", textColor="#FFFFFF"}
+  }
+  local view = loadlayout(layout)
+  local dlg = LuaDialog(context).setView(view).show()
+  sub_emoji_qty_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, qtyList))
+  for i,v in ipairs(qtyList) do if v == emojiQty then sub_emoji_qty_sp.setSelection(i-1) end end
+  sub_emoji_save_btn.onClick = function()
+    emojiEnabled = sub_emoji_chk.isChecked()
+    emojiQty = qtyList[sub_emoji_qty_sp.getSelectedItemPosition() + 1]
+    dlg.dismiss()
+  end
+end
+
+function showSettings()
+  local typingModes = {"Auto Detect Script", "Professional Writer Mode", "Casual Typing Mode"}
+  local startupActionsList = {"Ask Every Time", "AI Dictation", "Start Voice Typing with Target Language", "Process the Text From Textbox", "Translate Text From Textbox"}
+  
+  local layout = {
+    ScrollView, layout_width="fill",
+    {LinearLayout, orientation="vertical", padding="20dp",
+      {TextView, text="Extreme AI Voice Typer v2.9", textSize="22sp", gravity="center", textColor="#2196F3"},
+      {TextView, text="Developer: Anurag Anant", textSize="14sp", gravity="center", textColor="#757575", layout_marginBottom="20dp"},
+      
+      {TextView, text=getUIText("select_typing_mode"), textSize="16sp", textColor="#2196F3", layout_marginBottom="5dp"},
+      {Spinner, id="typing_mode_sp", layout_marginBottom="20dp"},
+      
+      {TextView, text="Extension Startup Action", textSize="16sp", textColor="#2196F3", layout_marginBottom="5dp"},
+      {Spinner, id="startup_action_sp", layout_marginBottom="15dp"},
+      
+      {Button, id="ai_settings_btn", text=getUIText("ai_settings"), backgroundColor="#2196F3", textColor="#FFFFFF", layout_marginBottom="15dp"},
+      
+      {View, layout_height="1dp", backgroundColor="#CCCCCC", layout_marginTop="5dp", layout_marginBottom="15dp"},
+      
+      {TextView, text=getUIText("source_language"), layout_marginBottom="5dp"},
+      {Button, id="src_btn", text=selectedLanguage, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="10dp"},
+      
+      {LinearLayout, orientation="horizontal", layout_marginTop="10dp", gravity="center_vertical",
+        {CheckBox, id="trans_chk", text=getUIText("enable_translation"), checked=enableTranslation, layout_weight=1},
+        {Button, id="swap_btn", text=getUIText("swap"), backgroundColor="#607D8B", textColor="#FFFFFF"}},
+      {TextView, text=getUIText("target_language"), layout_marginTop="10dp", layout_marginBottom="5dp"},
+      {Button, id="tgt_btn", text=targetLanguage, backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginBottom="15dp"},
+      
+      {View, layout_height="1dp", backgroundColor="#CCCCCC", layout_marginTop="15dp", layout_marginBottom="15dp"},
+      
+      {Button, id="emoji_settings_btn", text=getUIText("emoji_settings"), backgroundColor="#607D8B", textColor="#FFFFFF", layout_marginTop="10dp"},
+      
+      {Button, id="more_options_btn", text=getUIText("more_options"), backgroundColor="#9E9E9E", textColor="#FFFFFF", layout_marginTop="10dp"},
+      
+      {View, layout_height="1dp", backgroundColor="#CCCCCC", layout_marginTop="20dp", layout_marginBottom="15dp"},
+      {Button, id="save_main_btn", text=getUIText("save_close"), backgroundColor="#4CAF50", textColor="#FFFFFF"}
+    }
+  }
+  
+  triggerVibration("settings")
+  local view = loadlayout(layout)
+  settingsDlg = LuaDialog(context).setView(view)
+  settingsDlg.show()
+  
+  Thread(luajava.bindClass("java.lang.Runnable"){
+      run = function()
+          Thread.sleep(3000)
+          checkForUpdates(false)
+      end
+  }).start()
+  
+  startup_action_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, startupActionsList))
+  for i,v in ipairs(startupActionsList) do if v == startupAction then startup_action_sp.setSelection(i-1) end end
+  
+  typing_mode_sp.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, typingModes))
+  for i,v in ipairs(typingModes) do if v == typingMode then typing_mode_sp.setSelection(i-1) end end
+  
+  ai_settings_btn.onClick = function() showAISettingsDialog() end
+  emoji_settings_btn.onClick = function() showEmojiSettingsDialog() end
+  more_options_btn.onClick = function() showMoreOptionsDialog() end
+  
+  src_btn.onClick = function() showLanguageSelectDialog(false, src_btn) end
+  tgt_btn.onClick = function() showLanguageSelectDialog(true, tgt_btn) end
+  
+  swap_btn.onClick = function()
+    local temp = selectedLanguage
+    selectedLanguage = targetLanguage
+    targetLanguage = temp
+    src_btn.setText(selectedLanguage)
+    tgt_btn.setText(targetLanguage)
+  end
+
+  save_main_btn.onClick = function()
+    typingMode = typingModes[typing_mode_sp.getSelectedItemPosition() + 1]
+    startupAction = startupActionsList[startup_action_sp.getSelectedItemPosition() + 1]
+    autoDetect = (typingMode == "Auto Detect Script")
+    enableTranslation = trans_chk.isChecked()
+    
+    editor.putString("typing_mode", typingMode).putString("startup_action", startupAction).putBoolean("auto_detect", autoDetect).putString("lang", selectedLanguage).putString("target_lang", targetLanguage).putBoolean("emoji_enabled", emojiEnabled).putBoolean("vibration_enabled", vibrationEnabled).putBoolean("sound_enabled", soundEnabled).putString("sound_type", soundType).putBoolean("copy_clipboard", copyToClipboard).putString("emoji_qty", emojiQty).putString("end_action", endAction).putBoolean("enable_trans", enableTranslation).putBoolean("use_ai_trans", useAITranslation).putBoolean("offline_mode", offlineMode).commit()
+    settingsDlg.dismiss() 
+  end
+end
+
+function insertText(spoken)
+  if not spoken or spoken == "" then return end
+
+  announce(getUIText("processing"))
+  
+  local function executeAIFinalFormat(textToProcess, isTranslatedFlag)
+    processWithAI(textToProcess, isTranslatedFlag, function(aiText)
+      local finalText = finalGuard(aiText)
+      finalText = applyDictionaryReplacement(finalText)
+      local node = service.getEditText()
+      if node then
+        local suffix = (endAction == "New Line" and "\n" or (endAction == "Space" and " " or (endAction == "Space + New Line" and " \n" or "")))
+        pcall(function() service.insert(node, finalText .. suffix)
+          if copyToClipboard then 
+            local clip = ClipData.newPlainText("AI Voice Typer", finalText)
+            context.getSystemService(Context.CLIPBOARD_SERVICE).setPrimaryClip(clip) end
+          triggerVibration("typing"); triggerSound(); announce(finalText) end)
+      end 
+    end)
+  end
+
+  if offlineMode then
+    local finalText = finalGuard(spoken)
+    processOffline(finalText, function(resText)
+      resText = applyDictionaryReplacement(resText)
+      local node = service.getEditText()
+      if node then
+        local suffix = (endAction == "New Line" and "\n" or (endAction == "Space" and " " or (endAction == "Space + New Line" and " \n" or "")))
+        pcall(function() service.insert(node, resText .. suffix)
+          if copyToClipboard then 
+            local clip = ClipData.newPlainText("AI Voice Typer", resText)
+            context.getSystemService(Context.CLIPBOARD_SERVICE).setPrimaryClip(clip) end
+          triggerVibration("typing"); triggerSound(); announce(resText) end)
+      end end)
+    return 
+  end
+
+  if enableTranslation then
+    if useAITranslation then
+      executeAIFinalFormat(spoken, false)
+    else
+      local targetCode = getLangCode(targetLanguage)
+      targetCode = string.sub(targetCode, 1, 2)
+      if targetLanguage == "Chinese (Mandarin)" then targetCode = "zh-CN" end
+      
+      local url = "https://translate.google.com/m?sl=auto&hl=" .. targetCode .. "&q=" .. Uri.encode(spoken)
+      
+      pcall(function()
+          local Http = luajava.bindClass("com.androlua.Http")
+          if not Http then Http = import("com.androlua.Http") end
+          if Http then
+              Http.get(url, function(status, result)
+                  if status == 200 and result then
+                      local translatedText = result:match('<div class="result%-container">([^<]+)</div>')
+                      if translatedText then
+                          translatedText = translatedText:gsub("&#39;", "'"):gsub("&quot;", '"'):gsub("&amp;", "&")
+                          executeAIFinalFormat(translatedText, true)
+                      else
+                          executeAIFinalFormat(spoken, false)
+                      end
+                  else
+                      executeAIFinalFormat(spoken, false)
+                  end
+              end)
+          else
+              executeAIFinalFormat(spoken, false)
+          end
+      end)
+    end
+  else
+    executeAIFinalFormat(spoken, false)
+  end
+end
+
+function startListening(overrideLang)
+  local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+  
+  local langCode = getLangCode(overrideLang or selectedLanguage)
+  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, langCode)
+  
+  local sr = SpeechRecognizer.createSpeechRecognizer(context)
+  sr.setRecognitionListener({
+    onResults = function(res)
+      local matches = res.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+      if matches and matches.size() > 0 then insertText(matches.get(0)) end
+      sr.destroy() end,
+    onError = function() sr.destroy() end})
+  sr.startListening(intent)
+end
+
+function processTextboxText(node, text)
+  if not text or text == "" or text == "nil" then
+    if node then
+      pcall(function() text = tostring(node.getText() or "") end)
+    end
+  end
+  if not text or text == "" or text == "nil" then
+    return
+  end
+  
+  announce("Processing text with AI for professional conversion.")
+  
+  local savedTypingMode = typingMode
+  typingMode = "Professional Writer Mode"
+  
+  local professionalUserCommand = "Transform the following text into professional quality content. Fix grammar, improve vocabulary, add proper punctuation, use professional tone. Keep the text in its original language. Do NOT translate to English or any other language. Return ONLY the enhanced text in the original language.\n\nText: " .. text
+  
+  local function callProfessionalAI()
+    local apiKey, apiUrl, modelList, payloadFormat
+    
+    if selectedProvider == "OpenRouter" then
+      apiKey = orKey
+      apiUrl = "https://openrouter.ai/api/v1/chat/completions"
+      modelList = {"openai/gpt-4o", "openai/gpt-4o-mini"}
+      payloadFormat = "openai"
+    elseif selectedProvider == "Groq" then
+      apiKey = groqKey
+      apiUrl = "https://api.groq.com/openai/v1/chat/completions"
+      modelList = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}
+      payloadFormat = "openai"
+    elseif selectedProvider == "Gemini" then
+      apiKey = geminiKey
+      apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/"
+      modelList = {"gemini-2.0-flash-exp", "gemini-1.5-flash"}
+      payloadFormat = "google"
+    end
+
+    if (not apiKey or apiKey == "") then 
+      typingMode = savedTypingMode
+      announce(selectedProvider .. " Key Missing")
+      return 
+    end
+    
+    apiKey = apiKey:gsub("^%s*(.-)%s*$", "%1")
+    
+    local function executeProfessionalRequest(modelIndex)
+      if modelIndex > #modelList then
+        typingMode = savedTypingMode
+        announce("Professional conversion failed")
+        return
+      end
+
+      local currentModel = modelList[modelIndex]
+      local finalUrl = apiUrl
+      local postData = {}
+
+      if payloadFormat == "openai" then
+        postData = { model = currentModel, messages = {{role="user", content=professionalUserCommand}}, temperature = 0.3 }
+      elseif payloadFormat == "google" then
+        finalUrl = apiUrl .. currentModel .. ":generateContent?key=" .. apiKey
+        postData = { contents = {{parts = {{text = professionalUserCommand}}}}, generationConfig = {temperature = 0.3} }
+      end
+
+      local headers = {
+        ["Content-Type"] = "application/json",
+        ["Accept"] = "application/json"
+      }
+      
+      if payloadFormat == "openai" then
+        headers["Authorization"] = "Bearer " .. apiKey
+      end
+
+      Http.post(finalUrl, cjson.encode(postData), headers, function(status, data)
+        if status == 200 and data then
+          local ok, decoded = pcall(cjson.decode, data)
+          if ok and decoded then
+            local outputText = nil
+            if payloadFormat == "openai" and decoded.choices and decoded.choices[1] then
+              outputText = decoded.choices[1].message.content
+            elseif payloadFormat == "google" and decoded.candidates and decoded.candidates[1] then
+              outputText = decoded.candidates[1].content.parts[1].text
+            end
+
+            if outputText then
+              typingMode = savedTypingMode
+              local finalText = finalGuard(outputText)
+              finalText = applyDictionaryReplacement(finalText)
+              
+              mainHandler.post(Runnable({
+                run = function()
+                  pcall(function()
+                    local freshNode = service.getEditText()
+                    if not freshNode then freshNode = node end
+                    
+                    local suffix = (endAction == "New Line" and "\n" or (endAction == "Space" and " " or (endAction == "Space + New Line" and " \n" or "")))
+                    local fullText = finalText .. suffix
+                    
+                    local Bundle = luajava.bindClass("android.os.Bundle")
+                    local bundle = Bundle()
+                    bundle.putCharSequence("ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE", fullText)
+                    local success = freshNode.performAction(2097152, bundle)
+                    
+                    if not success then
+                       bundle.putCharSequence("ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE", "")
+                       freshNode.performAction(2097152, bundle)
+                       service.insert(freshNode, fullText)
+                    end
+                    
+                    if copyToClipboard then 
+                      local clip = ClipData.newPlainText("AI Voice Typer", fullText)
+                      context.getSystemService(Context.CLIPBOARD_SERVICE).setPrimaryClip(clip) 
+                    end
+                    triggerVibration("typing")
+                    triggerSound()
+                    announce("Professional conversion complete")
+                  end)
+                end
+              }))
+              return
+            end
+          end
+        end
+        executeProfessionalRequest(modelIndex + 1)
+      end)
+    end
+    
+    executeProfessionalRequest(1)
+  end
+  
+  callProfessionalAI()
+end
+
+function translateTextboxTextWithAI(node, text, targetLang)
+  announce("Translating text to " .. targetLang)
+  
+  local translationPrompt = "Translate the following text into " .. targetLang .. " accurately. Maintain the original tone and meaning. CRITICAL: You MUST preserve and keep all emojis exactly as they are in the original text. Output strictly the translated text and nothing else. No explanations, no markdown, no quotes.\n\nText: " .. text
+  
+  local apiKey, apiUrl, modelList, payloadFormat
+  
+  if selectedProvider == "OpenRouter" then
+    apiKey = orKey
+    apiUrl = "https://openrouter.ai/api/v1/chat/completions"
+    modelList = {"openai/gpt-4o", "openai/gpt-4o-mini"}
+    payloadFormat = "openai"
+  elseif selectedProvider == "Groq" then
+    apiKey = groqKey
+    apiUrl = "https://api.groq.com/openai/v1/chat/completions"
+    modelList = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}
+    payloadFormat = "openai"
+  elseif selectedProvider == "Gemini" then
+    apiKey = geminiKey
+    apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/"
+    modelList = {"gemini-2.0-flash-exp", "gemini-1.5-flash"}
+    payloadFormat = "google"
+  end
+
+  if (not apiKey or apiKey == "") then 
+    announce(selectedProvider .. " Key Missing")
+    return 
+  end
+  
+  apiKey = apiKey:gsub("^%s*(.-)%s*$", "%1")
+  
+  local function executeTranslationRequest(modelIndex)
+    if modelIndex > #modelList then
+      announce("Translation failed")
+      return
+    end
+
+    local currentModel = modelList[modelIndex]
+    local finalUrl = apiUrl
+    local postData = {}
+
+    if payloadFormat == "openai" then
+      postData = { model = currentModel, messages = {{role="user", content=translationPrompt}}, temperature = 0.3 }
+    elseif payloadFormat == "google" then
+      finalUrl = apiUrl .. currentModel .. ":generateContent?key=" .. apiKey
+      postData = { contents = {{parts = {{text = translationPrompt}}}}, generationConfig = {temperature = 0.3} }
+    end
+
+    local headers = {
+      ["Content-Type"] = "application/json",
+      ["Accept"] = "application/json"
+    }
+    
+    if payloadFormat == "openai" then
+      headers["Authorization"] = "Bearer " .. apiKey
+    end
+
+    Http.post(finalUrl, cjson.encode(postData), headers, function(status, data)
+      if status == 200 and data then
+        local ok, decoded = pcall(cjson.decode, data)
+        if ok and decoded then
+          local outputText = nil
+          if payloadFormat == "openai" and decoded.choices and decoded.choices[1] then
+            outputText = decoded.choices[1].message.content
+          elseif payloadFormat == "google" and decoded.candidates and decoded.candidates[1] then
+            outputText = decoded.candidates[1].content.parts[1].text
+          end
+
+          if outputText then
+            local finalText = finalGuard(outputText)
+            finalText = applyDictionaryReplacement(finalText)
+            
+            mainHandler.post(Runnable({
+              run = function()
+                pcall(function()
+                  local freshNode = service.getEditText()
+                  if not freshNode then freshNode = node end
+                  
+                  local suffix = (endAction == "New Line" and "\n" or (endAction == "Space" and " " or (endAction == "Space + New Line" and " \n" or "")))
+                  local fullText = finalText .. suffix
+                  
+                  local Bundle = luajava.bindClass("android.os.Bundle")
+                  local bundle = Bundle()
+                  bundle.putCharSequence("ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE", fullText)
+                  local success = freshNode.performAction(2097152, bundle)
+                  
+                  if not success then
+                     bundle.putCharSequence("ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE", "")
+                     freshNode.performAction(2097152, bundle)
+                     service.insert(freshNode, fullText)
+                  end
+                  
+                  if copyToClipboard then 
+                    local clip = ClipData.newPlainText("AI Voice Typer", fullText)
+                    context.getSystemService(Context.CLIPBOARD_SERVICE).setPrimaryClip(clip) 
+                  end
+                  triggerVibration("typing")
+                  triggerSound()
+                  announce("Translation complete")
+                end)
+              end
+            }))
+            return
+          end
+        end
+      end
+      executeTranslationRequest(modelIndex + 1)
+    end)
+  end
+  
+  executeTranslationRequest(1)
+end
+
+function showTranslationLanguageDialog(node, text)
+  if not text or text == "" or text == "nil" then
+    if node then
+      pcall(function() text = tostring(node.getText() or "") end)
+    end
+  end
+  if not text or text == "" or text == "nil" then
+    announce("Textbox is empty")
+    return
+  end
+
+  local transLangs = {
+    "English", "Hindi", "Marathi", "Gujarati", "Bengali", "Tamil", "Telugu", "Kannada", "Malayalam", "Punjabi", "Urdu", "Odia", "Assamese", "Sindhi", "Nepali", "Sinhala", "Arabic", "Spanish", "French", "German", "Russian", "Japanese", "Korean", "Chinese (Mandarin)", "Italian", "Portuguese", "Dutch", "Turkish", "Persian", "Swahili"
+  }
+
+  local listDlg = LuaDialog(context)
+  listDlg.setTitle("Choose target language")
+  local list = ListView(context)
+  list.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, transLangs))
+  
+  list.onItemClick = function(parent, view, position, id)
+    local selectedLang = transLangs[position + 1]
+    listDlg.dismiss()
+    translateTextboxTextWithAI(node, text, selectedLang)
+  end
+  
+  listDlg.setView(list)
+  listDlg.show()
+end
+
+function showStartupDialog(node, initialText)
+  local dlg = LuaDialog(context)
+  dlg.setTitle("What do you want to do?")
+  local layout = {
+    LinearLayout, orientation="vertical", padding="20dp",
+    {Button, text="AI Voice Dictation", backgroundColor="#4CAF50", textColor="#FFFFFF", layout_marginBottom="10dp", onClick=function() dlg.dismiss() startListening() end},
+    {Button, text="Start Voice Typing with Target Language", backgroundColor="#FF9800", textColor="#FFFFFF", layout_marginBottom="10dp", onClick=function() dlg.dismiss() startListening(targetLanguage) end},
+    {Button, text="Process the Text From Textbox", backgroundColor="#2196F3", textColor="#FFFFFF", layout_marginBottom="10dp", onClick=function() 
+      dlg.dismiss() 
+      mainHandler.postDelayed(Runnable({
+        run = function()
+          processTextboxText(node, initialText)
+        end
+      }), 200)
+    end},
+    {Button, text="Translate Text From Textbox", backgroundColor="#9C27B0", textColor="#FFFFFF", layout_marginBottom="10dp", onClick=function() 
+      dlg.dismiss() 
+      mainHandler.postDelayed(Runnable({
+        run = function()
+          showTranslationLanguageDialog(node, initialText)
+        end
+      }), 200)
+    end},
+    {Button, text="Open Settings", backgroundColor="#9E9E9E", textColor="#FFFFFF", onClick=function() dlg.dismiss() showSettings() end}
+  }
+  dlg.setView(loadlayout(layout))
+  dlg.show()
+end
+
+function main()
+  if not service then
+    showSettings()
+    return
+  end
+  
+  local node = service.getEditText()
+  if not node then
+    showSettings()
+    return
+  end
+
+  local initialText = ""
+  pcall(function() initialText = tostring(node.getText() or "") end)
+  if initialText == "nil" then initialText = "" end
+
+  if startupAction == "Ask Every Time" then
+    showStartupDialog(node, initialText)
+  elseif startupAction == "AI Dictation" then
+    startListening()
+  elseif startupAction == "Start Voice Typing with Target Language" then
+    startListening(targetLanguage)
+  elseif startupAction == "Process the Text From Textbox" then
+    processTextboxText(node, initialText)
+  elseif startupAction == "Translate Text From Textbox" then
+    showTranslationLanguageDialog(node, initialText)
+  else
+    showSettings()
+  end
+end
+
+task(300, main)
