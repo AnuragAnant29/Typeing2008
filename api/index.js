@@ -1,4 +1,6 @@
-export const config = {
+const https = require('https');
+
+const config = {
   api: {
     bodyParser: {
       sizeLimit: '9mb'
@@ -17,35 +19,74 @@ function parseBody(req) {
   return {};
 }
 
-async function forwardText(botToken, chatId, text) {
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ chat_id: chatId, text })
+function telegramRequest(botToken, method, headers, bodyBuffer) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.telegram.org',
+      path: '/bot' + botToken + '/' + method,
+      method: 'POST',
+      headers: headers
+    };
+    const req = https.request(options, (resp) => {
+      let chunks = [];
+      resp.on('data', (c) => chunks.push(c));
+      resp.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let parsed = {};
+        try { parsed = JSON.parse(raw); } catch (e) { parsed = { raw: raw }; }
+        resolve({ status: resp.statusCode, data: parsed });
+      });
+    });
+    req.on('error', (err) => reject(err));
+    if (bodyBuffer) req.write(bodyBuffer);
+    req.end();
   });
-  const data = await resp.json().catch(() => ({}));
-  return { ok: resp.ok && data.ok !== false, status: resp.status, data };
+}
+
+async function forwardText(botToken, chatId, text) {
+  const form = 'chat_id=' + encodeURIComponent(chatId) + '&text=' + encodeURIComponent(text);
+  const bodyBuffer = Buffer.from(form, 'utf8');
+  const result = await telegramRequest(botToken, 'sendMessage', {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Content-Length': bodyBuffer.length
+  }, bodyBuffer);
+  return { ok: result.status === 200 && result.data.ok !== false, status: result.status, data: result.data };
 }
 
 async function forwardVoice(botToken, chatId, caption, filename, mimeType, method, fieldName, audioBase64) {
-  const buffer = Buffer.from(audioBase64, 'base64');
-  const blob = new Blob([buffer], { type: mimeType || 'audio/ogg' });
-  const form = new FormData();
-  form.append('chat_id', chatId);
-  if (caption) form.append('caption', caption);
-  form.append(fieldName || 'voice', blob, filename || 'voice_feedback.ogg');
+  const audioBuffer = Buffer.from(audioBase64, 'base64');
+  const boundary = '----AIVoiceTyperRelayBoundary' + Date.now();
+  const lineEnd = '\r\n';
 
-  const url = `https://api.telegram.org/bot${botToken}/${method || 'sendVoice'}`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    body: form
-  });
-  const data = await resp.json().catch(() => ({}));
-  return { ok: resp.ok && data.ok !== false, status: resp.status, data };
+  const parts = [];
+  parts.push(Buffer.from('--' + boundary + lineEnd +
+    'Content-Disposition: form-data; name="chat_id"' + lineEnd + lineEnd +
+    chatId + lineEnd, 'utf8'));
+
+  if (caption) {
+    parts.push(Buffer.from('--' + boundary + lineEnd +
+      'Content-Disposition: form-data; name="caption"' + lineEnd + lineEnd +
+      caption + lineEnd, 'utf8'));
+  }
+
+  parts.push(Buffer.from('--' + boundary + lineEnd +
+    'Content-Disposition: form-data; name="' + fieldName + '"; filename="' + filename + '"' + lineEnd +
+    'Content-Type: ' + mimeType + lineEnd + lineEnd, 'utf8'));
+  parts.push(audioBuffer);
+  parts.push(Buffer.from(lineEnd, 'utf8'));
+  parts.push(Buffer.from('--' + boundary + '--' + lineEnd, 'utf8'));
+
+  const bodyBuffer = Buffer.concat(parts);
+
+  const result = await telegramRequest(botToken, method, {
+    'Content-Type': 'multipart/form-data; boundary=' + boundary,
+    'Content-Length': bodyBuffer.length
+  }, bodyBuffer);
+
+  return { ok: result.status === 200 && result.data.ok !== false, status: result.status, data: result.data };
 }
 
-export default async function handler(req, res) {
+module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'Method not allowed' });
     return;
@@ -94,4 +135,6 @@ export default async function handler(req, res) {
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err && err.message ? err.message : err) });
   }
-}
+};
+
+module.exports.config = config;
