@@ -1,62 +1,97 @@
-module.exports = async (req, res) => {
-  if (req.method !== "POST") {
-    res.status(405).send("Method Not Allowed");
-    return;
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '9mb'
+    }
   }
-  const params = req.body || {};
-  const botToken = params.bot_token;
-  const chatId = params.chat_id;
+};
 
-  if (!botToken || !chatId) {
-    res.status(400).send("Missing parameters");
+function parseBody(req) {
+  if (req.body && typeof req.body === 'object') return req.body;
+  if (typeof req.body === 'string') {
+    const params = new URLSearchParams(req.body);
+    const out = {};
+    for (const [k, v] of params.entries()) out[k] = v;
+    return out;
+  }
+  return {};
+}
+
+async function forwardText(botToken, chatId, text) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ chat_id: chatId, text })
+  });
+  const data = await resp.json().catch(() => ({}));
+  return { ok: resp.ok && data.ok !== false, status: resp.status, data };
+}
+
+async function forwardVoice(botToken, chatId, caption, filename, mimeType, method, fieldName, audioBase64) {
+  const buffer = Buffer.from(audioBase64, 'base64');
+  const blob = new Blob([buffer], { type: mimeType || 'audio/ogg' });
+  const form = new FormData();
+  form.append('chat_id', chatId);
+  if (caption) form.append('caption', caption);
+  form.append(fieldName || 'voice', blob, filename || 'voice_feedback.ogg');
+
+  const url = `https://api.telegram.org/bot${botToken}/${method || 'sendVoice'}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    body: form
+  });
+  const data = await resp.json().catch(() => ({}));
+  return { ok: resp.ok && data.ok !== false, status: resp.status, data };
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ ok: false, error: 'Method not allowed' });
     return;
   }
 
   try {
-    if (params.audio_base64) {
-      const audioBuffer = Buffer.from(params.audio_base64, "base64");
-      const method = params.method || "sendAudio";
-      const fieldName = params.field_name || "audio";
-      const filename = params.filename || "voice_feedback.ogg";
-      const mimeType = params.mime_type || "audio/ogg";
+    const body = parseBody(req);
+    const botToken = body.bot_token;
+    const chatId = body.chat_id;
 
-      const form = new FormData();
-      form.append("chat_id", chatId);
-      if (params.caption) form.append("caption", params.caption);
-      form.append(fieldName, new Blob([audioBuffer], { type: mimeType }), filename);
+    if (!botToken || !chatId) {
+      res.status(400).json({ ok: false, error: 'Missing bot_token or chat_id' });
+      return;
+    }
 
-      const telegramUrl = "https://api.telegram.org/bot" + botToken + "/" + method;
-      const response = await fetch(telegramUrl, {
-        method: "POST",
-        body: form
-      });
-      const data = await response.json();
-      if (data.ok) {
-        res.status(200).send("OK");
-      } else {
-        res.status(500).send(JSON.stringify(data));
+    if (body.audio_base64) {
+      const result = await forwardVoice(
+        botToken,
+        chatId,
+        body.caption || '',
+        body.filename || 'voice_feedback.ogg',
+        body.mime_type || 'audio/ogg',
+        body.method || 'sendVoice',
+        body.field_name || 'voice',
+        body.audio_base64
+      );
+      if (!result.ok) {
+        res.status(502).json({ ok: false, error: 'Telegram rejected voice upload', telegram: result.data });
+        return;
       }
+      res.status(200).json({ ok: true });
       return;
     }
 
-    const text = params.text;
-    if (!text) {
-      res.status(400).send("Missing parameters");
+    if (body.text) {
+      const result = await forwardText(botToken, chatId, body.text);
+      if (!result.ok) {
+        res.status(502).json({ ok: false, error: 'Telegram rejected text message', telegram: result.data });
+        return;
+      }
+      res.status(200).json({ ok: true });
       return;
     }
-    const telegramUrl = "https://api.telegram.org/bot" + botToken + "/sendMessage";
-    const response = await fetch(telegramUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "chat_id=" + encodeURIComponent(chatId) + "&text=" + encodeURIComponent(text)
-    });
-    const data = await response.json();
-    if (data.ok) {
-      res.status(200).send("OK");
-    } else {
-      res.status(500).send(JSON.stringify(data));
-    }
+
+    res.status(400).json({ ok: false, error: 'Neither text nor audio_base64 provided' });
   } catch (err) {
-    res.status(500).send("Error: " + err.message);
+    res.status(500).json({ ok: false, error: String(err && err.message ? err.message : err) });
   }
-};
+}
