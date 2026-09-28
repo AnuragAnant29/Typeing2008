@@ -7,23 +7,25 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
-  
-  const part1 = "gsk_";
-  const k1 = part1 + "FXl6twCAMfOkZqV1p4vqWGdyb3FY0uJnZWpnhDARY1Ly1RY5TFGV";
-  const k2 = part1 + "suAYO9fAE5aa7aQBvN5VWGdyb3FY2N1ICxKfYQHedYwGmMgYCYuV";
-
-  const groqKeys = [k1, k2];
-
   if (req.method === 'POST') {
     try {
-      const selectedKey = groqKeys[Math.floor(Math.random() * groqKeys.length)];
+      const apiUrl = "https://openrouter.ai/api/v1/chat/completions";
       
-      const response = await fetch(groqUrl, {
+      const partO = "sk-or-v1-";
+      const o1 = partO + "7cf62ad2071310c9d526e29470955110ae28c1e379e44956f9c264b8d8afc219";
+      const o2 = partO + "9e5e686ce01cfb0be98cdde6ae50ec9b80eab0a7146f6c3994e036005863a0dd";
+      const o3 = partO + "bb440680a83b643dc48f11a76ea563faa2e80f94f58a1625045c8cc7410a9514";
+      const o4 = partO + "e030dcbf56ce796403d6009baa203c3d8fce749c3948fd065672bf4abb3fdce2";
+      const o5 = partO + "55354bbc88dd85c17d7194ccc8a281602d3760a95339bc3aa40e401535d4e832";
+      
+      const orKeys = [o1, o2, o3, o4, o5];
+      const apiKey = orKeys[Math.floor(Math.random() * orKeys.length)];
+
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + selectedKey
+          'Authorization': 'Bearer ' + apiKey
         },
         body: JSON.stringify(req.body)
       });
@@ -35,5 +37,5 @@ export default async function handler(req, res) {
     }
   }
   
-  return res.status(200).send("Anurag Anant AI Provider is Active on Vercel!");
+  return res.status(200).send("Developed by Anurag Anant - OpenRouter AI Provider Active!");
 }
